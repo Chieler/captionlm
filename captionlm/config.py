@@ -7,7 +7,7 @@ TERM_EXTRACTION_TOP_N = 50
 # SEC EDGAR requires a descriptive contact string in the User-Agent header
 # on every request. Fill this in with a real contact before running
 # captionlm/eval_dataset.py against the live API.
-SEC_CONTACT = "captionlm/1.0 (set a real contact email here)"
+SEC_CONTACT = "captionlm/1.0 (chielerli@gmail.com)"
 
 
 @dataclass
