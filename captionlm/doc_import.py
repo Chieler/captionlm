@@ -1,13 +1,12 @@
-from extractous import Extractor
-extractor = Extractor()
-extractor = extractor.set_extract_string_max_length(3000)
+"""Extract plain text from local files (docx, pdf, csv, and whatever
+else extractous/Tika support), including a workaround for
+Google-Docs-exported .docx files that trigger Tika's TIKA-198 error."""
 import os
-import zipfile
 import tempfile
 import xml.etree.ElementTree as ET
+import zipfile
 
-static_assets_dir = "/Users/chielerli/Programming/captionlm/static_assets/"
-static_assets = os.listdir(static_assets_dir)
+from extractous import Extractor
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 ET.register_namespace("w", W_NS)
@@ -52,20 +51,24 @@ def fix_google_docs_docx(path):
     return tmp_path
 
 
-reference_files_texts = []
-for asset in static_assets:
-    os.rename(os.path.join(static_assets_dir, asset), os.path.join(static_assets_dir, asset.replace(" ", "_")))
-    p = os.path.join(static_assets_dir, asset.replace(" ", "_"))
-
+def extract_text(path: str, max_length: int = 50_000) -> str:
+    extractor = Extractor().set_extract_string_max_length(max_length)
     try:
-        result, metadata = extractor.extract_file_to_string(p)
+        result, _metadata = extractor.extract_file_to_string(path)
     except TypeError as e:
-        if p.lower().endswith(".docx") and "TIKA-198" in str(e):
-            fixed = fix_google_docs_docx(p)
+        if path.lower().endswith(".docx") and "TIKA-198" in str(e):
+            fixed = fix_google_docs_docx(path)
             try:
-                result, metadata = extractor.extract_file_to_string(fixed)
+                result, _metadata = extractor.extract_file_to_string(fixed)
             finally:
                 os.remove(fixed)
         else:
             raise
-    print(p, result)
+    return result
+
+
+if __name__ == "__main__":
+    static_assets_dir = os.path.join(os.path.dirname(__file__), "..", "static_assets")
+    for asset in os.listdir(static_assets_dir):
+        p = os.path.join(static_assets_dir, asset)
+        print(p, extract_text(p))
