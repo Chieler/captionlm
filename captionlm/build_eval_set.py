@@ -47,6 +47,8 @@ def extract_call_year(nlp_path: str, wer_tags_path: str) -> int | None:
 def estimate_call_date(year: int, financial_quarter: int) -> str:
     if financial_quarter == 4:
         return f"{year + 1:04d}-02-15"
+    if financial_quarter not in _QUARTER_ESTIMATE:
+        raise ValueError(f"financial_quarter must be 1-4, got {financial_quarter}")
     month, day = _QUARTER_ESTIMATE[financial_quarter]
     return f"{year:04d}-{month:02d}-{day:02d}"
 

@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from captionlm.build_eval_set import (
     estimate_call_date,
@@ -49,6 +50,11 @@ def test_estimate_call_date_quarters():
     assert estimate_call_date(2020, 2) == "2020-08-15"
     assert estimate_call_date(2020, 3) == "2020-11-15"
     assert estimate_call_date(2020, 4) == "2021-02-15"
+
+
+def test_estimate_call_date_invalid_quarter():
+    with pytest.raises(ValueError, match="financial_quarter must be 1-4, got 5"):
+        estimate_call_date(2020, 5)
 
 
 def test_resolve_cik_from_company_name_found():
