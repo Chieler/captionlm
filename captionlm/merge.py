@@ -3,6 +3,8 @@ terms, by frame-overlap, following the same replace-on-overlap idea as
 NeMo's merge_alignment_with_ws_hyps (this is a from-scratch
 reimplementation against parakeet-mlx's AlignedToken type, not a port —
 parakeet-mlx has no equivalent of NeMo's rnnt_utils.Hypothesis)."""
+import string
+
 from parakeet_mlx.alignment import AlignedToken
 
 from captionlm.vendor.ctc_word_spotter import WSHyp
@@ -16,6 +18,20 @@ def _group_words(tokens: list[AlignedToken]) -> list[list[AlignedToken]]:
         else:
             words.append([tok])
     return words
+
+
+def _trailing_punct(word_tokens: list[AlignedToken]) -> str:
+    """Text of trailing punctuation-only tokens (e.g. '.', ',', '?', '!') at
+    the end of a word group. These have no leading space, so _group_words
+    folds them onto the preceding word rather than starting a new one; a
+    plain replacement would otherwise silently drop them."""
+    suffix = ""
+    for tok in reversed(word_tokens):
+        if tok.text and all(c in string.punctuation for c in tok.text):
+            suffix = tok.text + suffix
+        else:
+            break
+    return suffix
 
 
 def _overlap_pct(word_start: float, word_end: float, hyp_start: float, hyp_end: float) -> float:
@@ -50,7 +66,7 @@ def merge_spans(
             continue
 
         first_idx, last_idx = overlap_idxs[0], overlap_idxs[-1]
-        if last_idx - first_idx + 1 != len(overlap_idxs):
+        if any(used[first_idx:last_idx + 1]):
             # a word inside this hyp's span was already claimed by an earlier hyp —
             # skip rather than silently bridge over it and clobber that replacement
             continue
@@ -59,11 +75,12 @@ def merge_spans(
             used[i] = True
 
         lead_space = " " if " " in words[first_idx][0].text else ""
+        trailing_punct = _trailing_punct(words[last_idx])
         replacements[first_idx] = (
             last_idx,
             AlignedToken(
                 id=-1,
-                text=lead_space + hyp.word,
+                text=lead_space + hyp.word + trailing_punct,
                 start=words[first_idx][0].start,
                 duration=words[last_idx][-1].end - words[first_idx][0].start,
                 confidence=1.0,

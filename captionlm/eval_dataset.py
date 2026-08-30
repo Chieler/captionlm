@@ -9,6 +9,7 @@ running assemble_triple/fetch_json against the live API.
 import json
 import urllib.request
 from datetime import date
+from functools import lru_cache
 
 from captionlm.config import SEC_CONTACT
 
@@ -53,7 +54,9 @@ def build_filing_url(cik: str, accession: str, primary_document: str) -> str:
     return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodashes}/{primary_document}"
 
 
+@lru_cache
 def fetch_json(url: str) -> dict:
+    assert "@" in SEC_CONTACT, "Set a real contact email in config.SEC_CONTACT before hitting SEC EDGAR"
     request = urllib.request.Request(url, headers={"User-Agent": SEC_CONTACT})
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))

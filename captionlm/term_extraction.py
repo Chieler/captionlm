@@ -8,8 +8,10 @@ license, no GPU, spaCy en_core_web_sm only.
 """
 from pyate import term_extractor
 
+from captionlm.config import TERM_EXTRACTION_TOP_N
 
-def extract_terms(text: str, top_n: int = 50) -> list[str]:
+
+def extract_terms(text: str, top_n: int = TERM_EXTRACTION_TOP_N) -> list[str]:
     scores = term_extractor(text)
     if scores.empty:
         return []

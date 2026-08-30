@@ -58,6 +58,21 @@ def test_low_overlap_hyp_is_ignored():
     assert [t.text for t in merged] == [" hello"]
 
 
+def test_trailing_punctuation_is_preserved():
+    tokens = [
+        _tok(" hello", 0.0, 0.16),
+        _tok(" kubernetees", 0.16, 0.32),  # mis-transcribed
+        _tok(".", 0.48, 0.08),  # sentence-ending punctuation, no leading space
+    ]
+    # word + period together span frames [2, 6] at 0.08s/frame (0.16s to 0.56s)
+    hyps = [WSHyp(word="Kubernetes", score=10.0, start_frame=2, end_frame=6)]
+
+    merged = merge_spans(tokens, hyps, TIME_RATIO)
+
+    assert [t.text for t in merged] == [" hello", " Kubernetes."]
+    assert merged[1].id == -1
+
+
 def test_two_hyps_do_not_clobber_each_other():
     tokens = [
         _tok(" alpha", 0.0, 0.16),

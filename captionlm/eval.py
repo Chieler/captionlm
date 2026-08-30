@@ -29,7 +29,7 @@ def load_clips(clip_dir: str) -> list[dict]:
 def transcribe_clips(model, clips: list[dict]) -> list[dict]:
     samples = []
     for clip in clips:
-        result = model.transcribe(clip["wav"])
+        result = model.transcribe(clip["wav"], chunk_duration=120.0)
         samples.append({"text": clip["text"], "pred_text": result.text})
     return samples
 

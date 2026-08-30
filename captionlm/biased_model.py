@@ -45,7 +45,7 @@ class BiasedParakeetTDTCTC(ParakeetTDTCTC):
 
             hypotheses = []
             for batch_idx, tokens in enumerate(result):
-                logprobs = np.array(ctc_logits[batch_idx])
+                logprobs = np.array(ctc_logits[batch_idx].astype(mx.float32))
                 ws_hyps = run_word_spotter(
                     logprobs,
                     self.context_graph,

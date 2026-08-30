@@ -1,7 +1,5 @@
 import wave
 
-import mlx.core as mx
-
 from captionlm.biased_model import load_biased_model
 from captionlm.config import MODEL_ID
 from captionlm.terms import build_context_graph, load_tokenizer
@@ -47,4 +45,6 @@ def test_blank_idx_matches_vocabulary_length():
     # Silently using the vendored spotter's default blank_idx=0 spots nothing; this
     # assertion is the self-check the design doc calls for.
     assert len(model.vocabulary) > 0
-    assert mx.array(model.vocabulary == model.vocabulary).item()  # vocabulary is stable/non-empty
+    # CTC head has exactly len(vocabulary) + 1 output classes with blank last;
+    # this is the invariant the blank-index computation above depends on.
+    assert model.ctc_decoder.decoder_layers[0].weight.shape[0] == len(model.vocabulary) + 1
