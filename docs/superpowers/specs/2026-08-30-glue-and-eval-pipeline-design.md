@@ -53,6 +53,10 @@ numbers.
 
 ## Architecture
 
+Verified against a real (metadata-only, no audio) clone of
+`revdotcom/speech-datasets` before writing this section — see Resolved
+unknowns below for what that changed from the original plan.
+
 ```
 static file, or a downloaded SEC filing (temp file)
         │
@@ -66,22 +70,53 @@ captionlm/term_extraction.py (unchanged)
         │
         ▼
 captionlm/build_eval_set.py                          [NEW]
+  extract_call_year(nlp_path, wer_tags_path) -> int | None
+      parses the .nlp token file + wer_tags sidecar JSON for the first
+      token tagged entity_type "YEAR", returns its text as an int
+
+  estimate_call_date(year: int, financial_quarter: int) -> str
+      quarter → approximate reporting-month midpoint (Q1→May 15,
+      Q2→Aug 15, Q3→Nov 15, Q4→Feb 15 of year+1), "YYYY-MM-DD"
+
+  resolve_cik_from_company_name(company_name, company_tickers: dict) -> str | None
+      same shape as eval_dataset.resolve_cik, matches against each
+      entry's "title" (not "ticker") after normalizing case/suffixes
+
+  reconstruct_transcript_text(nlp_path: str) -> str
+      joins the .nlp file's token+punctuation columns into plain text
+      (jiwer's default transform lowercases and strips punctuation on
+      both sides anyway, so exact casing/spacing fidelity isn't load-
+      bearing here)
+
   fetch_filing_text(url: str) -> str
       urllib download (SEC_CONTACT User-Agent) → temp .htm file
       → doc_import.extract_text → cleanup temp file
 
-  assemble_eval_clip(ticker, call_date, audio_path,
-      transcript_path, out_dir: str) -> dict | None
-      → captionlm.eval_dataset.assemble_triple(ticker, call_date)
-      → fetch_filing_text(filing["url"])
-      → extract_terms(filing_text) → write <clip>.doc.txt
-      → copy audio_path  → <out_dir>/<clip>.wav
-      → copy transcript_path → <out_dir>/<clip>.txt
-      → union of all clips' terms → shared terms.txt for the eval run
+  convert_to_wav(mp3_path: str, wav_path: str) -> None
+      ffmpeg subprocess — parakeet-mlx's own load_audio already shells
+      out to ffmpeg and doesn't care about file extension, so this
+      isn't for the model; it's because eval.py's load_clips globs
+      *.wav, and an eval_data/clips/ directory that lies about its own
+      file formats is a bad thing to leave behind for later debugging
 
-  main()  — CLI: reads Earnings-21's own call metadata (schema TBD,
-            see Open/known unknowns), takes --limit (default 5),
-            calls assemble_eval_clip per call, writes eval_data/clips/
+  assemble_eval_clip(file_id, company_name, financial_quarter,
+      audio_path, nlp_path, wer_tags_path, out_dir: str) -> dict | None
+      → extract_call_year, estimate_call_date
+      → fetch_json(company_tickers) [eval_dataset.py, already lru_cached]
+      → resolve_cik_from_company_name
+      → eval_dataset.find_press_release_filing(cik, call_date,
+            submissions, window_days=60)  [imported directly — see
+            "Why not assemble_triple" below]
+      → eval_dataset.build_filing_url → fetch_filing_text
+      → extract_terms(filing_text) → write <clip>.doc.txt
+      → convert_to_wav(audio_path) → <out_dir>/<clip>.wav
+      → reconstruct_transcript_text(nlp_path) → <out_dir>/<clip>.txt
+      → union of all clips' terms → shared terms.txt for the eval run
+      → None (skip + log) at any resolution failure — never guesses
+
+  main()  — CLI: reads earnings21-file-metadata.csv, takes --limit
+            (default 5), calls assemble_eval_clip per row, writes
+            eval_data/clips/ + eval_data/terms.txt
 
         │
         ▼
@@ -89,6 +124,20 @@ captionlm/eval.py (unchanged)
   run_eval(clip_dir="eval_data/clips", term_list_path="eval_data/terms.txt")
       → real WER + F-score, biasing on vs off
 ```
+
+### Why not call `eval_dataset.assemble_triple` directly
+
+`assemble_triple` composes `resolve_cik` → `find_press_release_filing`
+(hardcoded `window_days=5`) → `build_filing_url`, with no way to pass a
+wider window through. Since the estimated call date here is only
+approximate (see below), a 5-day window will miss real matches.
+Rather than modify `eval_dataset.py` (already task-reviewed as
+lookup-only) to add a `window_days` passthrough it didn't need before,
+`build_eval_set.py` imports and calls `find_press_release_filing`
+directly with `window_days=60`, alongside `resolve_cik_from_company_name`
+(a new function, since Earnings-21 gives a company name, not a ticker —
+see below) in place of `resolve_cik`. Nothing about `eval_dataset.py`
+changes.
 
 ### Why a new orchestrator module, not spread across existing files
 
@@ -127,23 +176,50 @@ Matches what `eval.py.load_clips` already expects (`<clip>.wav` +
 the deferred entity-tag metric. `eval_data/clips/` is new and gitignored
 (generated data, like `vendor_data/` from the prior plan).
 
-### Open/known unknowns — resolved during implementation, not guessed here
+### Resolved unknowns — verified against a real (metadata-only) clone
 
-- **Earnings-21's per-call metadata schema** (ticker, call date per audio
-  file) is not yet known — the dataset isn't cloned. First implementation
-  step is clone a handful of calls, inspect whatever metadata file
-  actually ships, and adapt `build_eval_set.main()`'s call-list loading to
-  match. This is expected, ordinary discovery work, not a design risk —
-  the pipeline shape (ticker/date in, clip out) doesn't change regardless
-  of the exact source format.
-- **Whether `filings.recent` covers 2020-2021 8-Ks at all** (flagged by
-  the final review as a real risk) is unverified. `assemble_eval_clip`
-  treats a `None` from `assemble_triple` as "skip this call, log why" —
-  consistent with `eval_dataset.py`'s existing documented behavior — so a
-  systematic pagination gap will show up as most/all calls being skipped,
-  which is itself the answer to whether Important finding #4 from the
-  final review needs a real fix. Not fixing it blind; finding out for
-  real.
+The original version of this spec deferred Earnings-21's exact file
+layout to "discover during implementation." That research happened
+during planning instead (git-lfs installed local-scope only, in a
+throwaway `/tmp` clone — never touched this repo's or the user's git
+config), because the shape of that data changes what code needs to
+exist, not just its details:
+
+- **No dataset ships an exact call date.** `earnings21-file-metadata.csv`
+  has `file_id, company_name, financial_quarter, sector, ...` — no
+  ticker, no date. The sibling `earnings22/metadata.csv` has a real
+  `Ticker Symbol` column but *also* no date, and skews toward
+  non-English/non-US filers (out of scope here). The only real date
+  signal anywhere is inside Earnings-21's own transcripts: `.nlp` token
+  files carry entity tags (via a `wer_tags` sidecar JSON), and `YEAR`
+  is one of them — confirmed on a real file (`4320211`): the token
+  `"2020"` is tagged `YEAR`, alongside a `DATE`-tagged span reading "the
+  third quarter Fiscal 2020". `extract_call_year` + `estimate_call_date`
+  (above) turn that plus the CSV's `financial_quarter` into an
+  approximate target date — a real signal from the call's own content,
+  not a fabricated one, but approximate enough that it needs the widened
+  60-day window rather than the original 5-day default.
+- **Transcripts are not plain text.** `.nlp` files are pipe-separated
+  token tables (`token|speaker|ts|endTs|punctuation|case|tags|wer_tags`).
+  `reconstruct_transcript_text` builds the plain-text reference `eval.py`
+  needs from the `token`+`punctuation` columns.
+- **Audio is `.mp3`, at various sample rates** (confirmed 24000/44100 Hz
+  across different files) — `parakeet-mlx`'s own `load_audio` shells out
+  to `ffmpeg -i <path>` directly regardless of extension or rate, so it
+  doesn't need conversion. `eval.py.load_clips` globbing `*.wav` is the
+  actual reason `convert_to_wav` exists.
+- **No ticker, only a company name.** `resolve_cik_from_company_name`
+  matches Earnings-21's `company_name` against SEC's `company_tickers.json`
+  `"title"` field instead of routing through a ticker symbol at all.
+
+**Whether `filings.recent` covers 2020-2021 8-Ks at all** (flagged by the
+final review as a separate risk) is still genuinely unverified — that one
+needs a live network call, which wasn't made during this (offline,
+metadata-only) research pass. `assemble_eval_clip` treats a resolution
+failure at any step as "skip this call, log why," so a systematic
+pagination gap will show up as most/all calls being skipped when this
+actually runs — which is itself the answer, discovered for real rather
+than guessed at.
 
 ## Testing
 
@@ -152,31 +228,38 @@ the deferred entity-tag metric. `eval_data/clips/` is new and gitignored
   actual Google-Docs-exported file that originally triggered TIKA-198) —
   a genuine regression test for a bug that was already found and fixed
   once.
+- `extract_call_year`, `estimate_call_date`, `resolve_cik_from_company_name`,
+  `reconstruct_transcript_text`: all pure, local, no network — real
+  automated tests against small synthetic fixtures (a 3-line `.nlp` +
+  matching `wer_tags.json`, a fixture `company_tickers` dict), same
+  pattern already established by `eval_dataset.py`'s own tests. No need
+  for the real multi-MB dataset files to test this logic.
 - `build_eval_set.assemble_eval_clip`: the network fetch
   (`fetch_filing_text`) is the natural seam to isolate — a test
-  monkeypatches it to return fixed filing text and real temp audio/text
-  files, then verifies the clip directory ends up with the right three
-  files in the right place. This matches `eval_dataset.py`'s own
-  established pattern of keeping pure/testable logic separate from the
-  one function that does real network I/O.
-- `fetch_filing_text` and `build_eval_set.main()` are not covered by an
-  automated test (live network, live dataset) — verified by actually
-  running the pipeline against real Earnings-21 calls, which is the
-  point of this work.
+  monkeypatches it to return fixed filing text, with real temp audio
+  (a tiny silent file) and `.nlp`/`wer_tags` fixtures, then verifies the
+  clip directory ends up with the right three files in the right place.
+- `fetch_filing_text`, `convert_to_wav` (needs real ffmpeg/audio), and
+  `build_eval_set.main()` are not covered by an automated test (live
+  network, live dataset, external tool) — verified by actually running
+  the pipeline against real Earnings-21 calls, which is the point of
+  this work.
 - No new tests needed for `eval.py` itself — unchanged, already tested.
 
 ## Phases
 
 1. **`doc_import.py`** — move + refactor `file_import.py`, add the
    TIKA-198 regression test.
-2. **Clone + inspect Earnings-21** — pull a handful of calls via
-   git-lfs, inspect the actual metadata format, confirm the plan for
-   Phase 3 against reality (may require a small course-correction here,
-   expected).
-3. **`build_eval_set.py`** — `fetch_filing_text`, `assemble_eval_clip`
-   (with its monkeypatched-network test), `main()`.
+2. **`build_eval_set.py` pure functions** — `extract_call_year`,
+   `estimate_call_date`, `resolve_cik_from_company_name`,
+   `reconstruct_transcript_text`, each with a fixture-based test.
+3. **`build_eval_set.py` orchestration** — `fetch_filing_text`,
+   `convert_to_wav`, `assemble_eval_clip` (with its monkeypatched-network
+   test), `main()`.
 4. **Set `SEC_CONTACT`** in `captionlm/config.py` to
    `chielerli@gmail.com`.
-5. **Run it** — `build_eval_set.py` against 5 real calls, then
-   `eval.py` against the assembled clip set. Report real WER/F-score
-   numbers, biasing on vs off.
+5. **Clone Earnings-21 for real** (git-lfs, local-scope install, a
+   handful of calls via sparse-checkout — not the full 39h) and **run
+   it**: `build_eval_set.py` against 5 real calls, then `eval.py`
+   against the assembled clip set. Report real WER/F-score numbers,
+   biasing on vs off.
