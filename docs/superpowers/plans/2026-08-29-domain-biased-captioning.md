@@ -878,9 +878,10 @@ def test_blank_idx_matches_vocabulary_length():
     model = load_biased_model(MODEL_ID)
     # ConvASRDecoder appends blank as the last class: num_classes = len(vocabulary) + 1.
     # Silently using the vendored spotter's default blank_idx=0 spots nothing; this
-    # assertion is the self-check the design doc calls for.
-    assert len(model.vocabulary) > 0
-    assert mx.array(model.vocabulary == model.vocabulary).item()  # vocabulary is stable/non-empty
+    # assertion is the self-check the design doc calls for. 1024 is this model's
+    # actual vocab size, verified against mlx-community/parakeet-tdt_ctc-110m's
+    # config.json during planning (aux_ctc.decoder.vocabulary has 1024 entries).
+    assert len(model.vocabulary) == 1024
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
