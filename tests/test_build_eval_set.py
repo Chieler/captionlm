@@ -76,3 +76,78 @@ def test_reconstruct_transcript_text(tmp_path):
         ],
     )
     assert reconstruct_transcript_text(str(nlp_path)) == "Good morning everyone."
+
+
+from pathlib import Path
+
+from captionlm.build_eval_set import assemble_eval_clip
+
+
+def test_assemble_eval_clip_writes_expected_files(tmp_path, monkeypatch):
+    nlp_path = tmp_path / "123.nlp"
+    _write_nlp_fixture(
+        nlp_path,
+        [
+            "Good|0||||UC|[]|[]",
+            "morning|0||||LC|[]|[]",
+            "third|0||||LC|[]|[]",
+            "quarter|0||||LC|[]|[]",
+            "2020|0||||CA|[]|['1']",
+        ],
+    )
+    wer_tags_path = tmp_path / "123.wer_tag.json"
+    wer_tags_path.write_text(json.dumps({"1": {"entity_type": "YEAR"}}), encoding="utf-8")
+    audio_path = tmp_path / "123.mp3"
+    audio_path.write_bytes(b"\x00")  # never read; convert_to_wav is monkeypatched below
+    out_dir = tmp_path / "clips"
+
+    def fake_fetch_json(url):
+        if "company_tickers" in url:
+            return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Test Company"}}
+        return {
+            "filings": {
+                "recent": {
+                    "form": ["8-K"],
+                    "filingDate": ["2020-11-10"],
+                    "accessionNumber": ["0001-20-000001"],
+                    "primaryDocument": ["pr.htm"],
+                }
+            }
+        }
+
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", fake_fetch_json)
+    monkeypatch.setattr(
+        "captionlm.build_eval_set.fetch_filing_text",
+        lambda url: "The kubernetes cluster grew revenue this quarter.",
+    )
+
+    written_wavs = []
+
+    def fake_convert(mp3_path, wav_path):
+        written_wavs.append(wav_path)
+        Path(wav_path).write_bytes(b"RIFF....WAVEfmt ")
+
+    monkeypatch.setattr("captionlm.build_eval_set.convert_to_wav", fake_convert)
+
+    result = assemble_eval_clip(
+        "123", "Test Company", 3, str(audio_path), str(nlp_path), str(wer_tags_path), str(out_dir)
+    )
+
+    assert result is not None
+    assert result["file_id"] == "123"
+    assert (out_dir / "123.wav").exists()
+    assert (out_dir / "123.txt").read_text(encoding="utf-8") == "Good morning third quarter 2020"
+    assert "kubernetes" in (out_dir / "123.doc.txt").read_text(encoding="utf-8").lower()
+    assert written_wavs == [str(out_dir / "123.wav")]
+
+
+def test_assemble_eval_clip_skips_when_no_year_found(tmp_path):
+    nlp_path = tmp_path / "456.nlp"
+    _write_nlp_fixture(nlp_path, ["Good|0||||UC|[]|[]"])
+    wer_tags_path = tmp_path / "456.wer_tag.json"
+    wer_tags_path.write_text(json.dumps({}), encoding="utf-8")
+
+    result = assemble_eval_clip(
+        "456", "Test Company", 3, "unused.mp3", str(nlp_path), str(wer_tags_path), str(tmp_path / "clips")
+    )
+    assert result is None
