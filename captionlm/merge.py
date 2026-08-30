@@ -50,6 +50,11 @@ def merge_spans(
             continue
 
         first_idx, last_idx = overlap_idxs[0], overlap_idxs[-1]
+        if last_idx - first_idx + 1 != len(overlap_idxs):
+            # a word inside this hyp's span was already claimed by an earlier hyp —
+            # skip rather than silently bridge over it and clobber that replacement
+            continue
+
         for i in range(first_idx, last_idx + 1):
             used[i] = True
 

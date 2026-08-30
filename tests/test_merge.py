@@ -56,3 +56,21 @@ def test_low_overlap_hyp_is_ignored():
     hyps = [WSHyp(word="Wrong", score=10.0, start_frame=0, end_frame=0)]
     merged = merge_spans(tokens, hyps, TIME_RATIO)
     assert [t.text for t in merged] == [" hello"]
+
+
+def test_two_hyps_do_not_clobber_each_other():
+    tokens = [
+        _tok(" alpha", 0.0, 0.16),
+        _tok(" beta", 0.16, 0.16),
+        _tok(" gamma", 0.32, 0.16),
+    ]
+    hyps = [
+        WSHyp(word="Beta-Term", score=10.0, start_frame=2, end_frame=3),   # covers only " beta" (0.16-0.32)
+        WSHyp(word="Gamma-Term", score=8.0, start_frame=4, end_frame=5),   # covers only " gamma" (0.32-0.48)
+    ]
+
+    merged = merge_spans(tokens, hyps, TIME_RATIO)
+
+    assert [t.text for t in merged] == [" alpha", " Beta-Term", " Gamma-Term"]
+    assert merged[1].id == -1
+    assert merged[2].id == -1
