@@ -215,3 +215,83 @@ F-score from 0.86 to 0.95 and buys roughly 20% relative WER. It cannot
 fix grammar, function words, or homophones. If overall WER is the goal,
 the remaining budget is in model choice and in second-pass rescoring
 that has access to sentence-level context.
+
+## After the 2026-08-31 precision plan
+
+Four tasks were coded against the findings above. Two landed, two were
+reverted by controller ruling after being measured against the plan's own
+0.002 WER tolerance. This section reports what actually reached the
+tree, not what the plan hoped for.
+
+| model | before | after | fixed | introduced (before) | introduced (after) |
+|---|---|---|---|---|---|
+| 110m, cb=3.0 | 0.0989 | 0.0969 | 56 | 37 | 31 |
+| 1.1b, cb=3.0 | 0.0778 | 0.0784 | 45 | 16 | 17 |
+
+Term-list sizes are unchanged from the plan's starting point: 206
+(ai_agents), 242 (distributed_systems). Both tasks that would have
+changed them (Task 3's plural variants, Task 4's NOUN/PROPN restriction)
+were reverted, so there is nothing here for term-list size to explain.
+
+**110m moved as the plan predicted.** WER 0.0989 -> 0.0969, introduced
+errors 37 -> 31, both below the Step 2 expectation of "below 37." This is
+Task 1 alone; Task 2 has no WER effect by design.
+
+**1.1b did not move as predicted, and the honest reading is that it got
+slightly worse.** WER 0.0778 -> 0.0784 (+0.0006), and introduced errors
+went 16 -> 17 — one *more*, not fewer, against the Step 2 expectation of
+"below 16." Fixed count held at 45. This is a small movement, on the
+order of one span out of 96, and could be run-to-run noise in the merge
+boundary rather than a systematic regression, but the plan's own rule is
+that a number moving the wrong way gets written down, not rationalized
+away. It is not being treated as a reason to revisit Task 1: Task 1's
+mechanism (not consuming more words than the spotted keyword accounts
+for) is directionally correct and the 110m result confirms it works:
+1.1b apparently has one edge case where the trim interacts differently
+with an already-more-confident spotter. Worth a look if a future plan
+touches `merge_spans` again; not worth reopening this one for.
+
+**Per task, what it was worth:**
+
+- **Task 1** (`merge_spans` stops over-consuming words at the low-overlap
+  edge): the only change with a measured WER effect. Landed. Worth 0.0020
+  WER at 110m (0.0989 -> 0.0969) and, on the same measurement, a
+  small net cost at 1.1b (+0.0006). Net positive across both sizes but
+  not uniformly so.
+- **Task 2** (name the two TDT-CTC checkpoints; raise `ValueError` on a
+  `blank_idx` / tokenizer mismatch): landed, zero WER effect by design.
+  It closes a silent-failure hole rather than changing any output on
+  passing inputs, so no WER movement is the expected and correct result,
+  not a null finding.
+- **Task 3** (match regular plural surface variants in the trie):
+  **reverted.** Measured WER rose to 0.0995 (+0.0026 over baseline,
+  outside the plan's 0.002 tolerance), and recall *fell* 0.9053 ->
+  0.8915 on both clips — the opposite of what adding matches should do,
+  which means the plural entries were displacing real hits rather than
+  adding to them. Worth nothing as shipped. One fragment survived: a
+  shared-prefix trie insertion-order fix (feed shorter variants first,
+  since `ContextGraphCTC.add_to_graph` reused a shared-prefix node
+  without updating `is_end`, silently making the base term
+  un-spottable), which is a correctness fix independent of the plural
+  feature and is why it was kept while the rest was reverted.
+- **Task 4** (restrict rare-lowercase term harvest to `NOUN`/`PROPN`):
+  **reverted.** Its premise — that `better`, `lets`, `real`, `traces` are
+  "ordinary English the model already transcribes correctly" — was
+  tested and is false: aligning the unbiased baseline against the
+  reference shows those four words spoken 7 times combined, misrecognized
+  4 of those 7 times (`better` 1/1, `lets` 1/2, `real` 1/3, `traces`
+  1/1). They carry real recall upside that a POS filter would have thrown
+  away; measured WER rose to 0.0995 (+0.0026, same magnitude as Task 3
+  and for a related reason: removing them narrows the term list without
+  removing genuine error sources). Worth nothing as shipped; worth
+  falsifying its own premise, which is the point of measuring before
+  shipping a spec's assumptions.
+
+**Net of this plan:** Task 1 plus Task 2. 110m WER improved by 0.0020;
+1.1b WER moved by -0.0006 (i.e., got worse by that amount) under the
+same change, both at cb_weight 3.0 with per-clip terms. Two of four
+coded tasks were reverted, and the revert record itself is the more
+durable output of Task 3 and Task 4: both hypotheses (plurals help
+recall; POS-filtering removes only noise) were specific, testable, and
+false, which is worth knowing for the next plan even though neither
+line of code shipped.
