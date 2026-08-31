@@ -1,7 +1,12 @@
 import pytest
 
 from captionlm.config import MODEL_ID
-from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
+from captionlm.terms import (
+    _surface_variants,
+    build_context_graph,
+    load_term_list,
+    load_tokenizer,
+)
 
 
 def test_load_term_list_skips_blanks_and_comments(tmp_path):
@@ -52,3 +57,28 @@ def test_build_context_graph_accepts_the_matching_blank_idx():
     tokenizer = load_tokenizer(MODEL_ID)
     graph = build_context_graph(["Kubernetes"], tokenizer, tokenizer.get_piece_size())
     assert graph is not None
+
+
+def test_surface_variants_adds_a_regular_plural_of_the_last_word():
+    assert "subtrees" in _surface_variants("subtree")
+    assert "vector clocks" in _surface_variants("vector clock")
+
+
+def test_surface_variants_uses_es_after_a_sibilant():
+    assert "witnesses" in _surface_variants("witness")
+    assert "boxes" in _surface_variants("box")
+
+
+def test_surface_variants_of_an_already_plural_term_stays_inert():
+    # "subtrees" gains "subtreeses", which no speaker will ever say, so the
+    # extra trie entry cannot fire. Cheaper than detecting real plurals, and
+    # the alternative -- skipping words ending in s -- would also lose
+    # "witness" -> "witnesses".
+    variants = _surface_variants("subtrees")
+    assert "subtrees" in variants
+
+
+def test_surface_variants_keeps_the_original_and_its_lowercase():
+    variants = _surface_variants("MONRO FORWARD")
+    assert "MONRO FORWARD" in variants
+    assert "monro forward" in variants
