@@ -22,18 +22,36 @@ Two failures, both fixed here:
    defeats the false-accept guard hardest. Terms carrying function words
    or running past MAX_TERM_WORDS are dropped.
 
-Neither spaCy's en_core_web_sm (no frequency table: `rank` is unset and
-`is_oov` is True even for "long") nor the model's 1024-piece
-sentencepiece vocabulary (cannot separate 3-piece "revenue" from 3-piece
-"Alcoa") gives a usable word-frequency signal, so commonness is decided
-structurally instead.
+Commonness is measured, not guessed. spaCy's en_core_web_sm ships no
+frequency table (`rank` is unset and `is_oov` is True even for "the")
+and the model's 1024-piece sentencepiece vocabulary cannot separate
+3-piece "revenue" from 3-piece "Alcoa", but pyate -- already a
+dependency -- bundles a 3000-document general-English corpus for its own
+statistical scoring. Counting it gives 1.56M tokens, enough to put
+"line" at 271 per million and "quorum" at 3.2.
+
+That measurement also collapses two rules into one. Every term worth
+biasing is rare in general English, whether it is a proper noun
+(Anthropic 0.0, Alcoa 1.9, Raft 5.1) or ordinary-looking domain jargon
+(linearizability 0.0, idempotent 0.6, tombstone 1.9). Every term worth
+rejecting is common (line 271, revenue 39, node 11.5). So a single
+rarity gate replaces the part-of-speech heuristic that used to guard
+single words -- and fixes what that heuristic could not: it kept "node"
+(spaCy tags it PROPN in a carrier sentence) and dropped "quorum".
 """
+import collections
+import functools
 import re
 
 import spacy
 
 MAX_TERM_WORDS = 4
 MIN_TERM_CHARS = 3
+
+# Occurrences per million in general English, above which a word is common
+# enough that the model already transcribes it correctly. Calibrated on the
+# corpus below: it must reject "node" (11.5) while keeping "raft" (5.1).
+MAX_COMMON_PER_MILLION = 10.0
 
 # Entity types that name things a speaker says aloud and an ASR is likely
 # to miss. Dates, times, money, percentages and ordinals are deliberately
@@ -51,6 +69,29 @@ def _pipeline():
     if _nlp is None:
         _nlp = spacy.load("en_core_web_sm")
     return _nlp
+
+
+@functools.lru_cache(maxsize=1)
+def _general_frequencies() -> tuple[collections.Counter, int]:
+    """Word counts over pyate's bundled general-English corpus.
+
+    pyate loads only 300 of the 3000 documents by default, which is too
+    few to be usable: at that size "quarter" and "revenue" occur three and
+    five times, indistinguishable from "raft" at one. The full corpus is
+    1.56M tokens and takes ~0.3s to count, once per process.
+    """
+    from pyate.term_extraction import TermExtraction
+
+    counts: collections.Counter = collections.Counter()
+    for doc in TermExtraction.get_general_domain(size=10**9):
+        counts.update(w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'-]*", str(doc)))
+    return counts, sum(counts.values())
+
+
+def is_rare(word: str) -> bool:
+    """Is this word uncommon enough in general English to be worth biasing?"""
+    counts, total = _general_frequencies()
+    return 1e6 * counts[word.lower()] / total <= MAX_COMMON_PER_MILLION
 
 
 def _is_acronym(word: str) -> bool:
@@ -76,23 +117,88 @@ def is_biasable(term: str, nlp=None) -> bool:
 
     if len(words) == 1:
         word = words[0]
-        if _is_acronym(word):
-            return True
-        # Single common nouns ("line", "revenue", "shares") are words the
-        # model already gets right, so they carry risk without upside.
-        #
-        # Tag inside a carrier sentence, not bare: spaCy tags an isolated
-        # "Alcoa" as NOUN and "Monro" as ADJ, but gets both right as PROPN
-        # once they sit in ordinary syntax.
-        doc = nlp(f"We discussed {word} in detail.")
-        token = doc[2]
-        return token.pos_ == "PROPN" or token.ent_type_ in ENTITY_LABELS
+        # A capitalized single word is a proper noun by orthography, which
+        # is more reliable than either tagging it or measuring it: "Apple"
+        # is a company however common "apple" is. Callers that harvest from
+        # a document must therefore not hand us a word whose only capital
+        # is sentence-initial.
+        return _is_acronym(word) or word[0].isupper() or is_rare(word)
 
     return True
 
 
+def _candidates(doc):
+    """Surface forms in one parsed chunk that might be worth biasing.
+
+    Three harvests, because no one of them is sufficient:
+
+    1. Named entities. Reliable for names the NER model has seen.
+    2. Capitalized runs. Necessary because en_core_web_sm assigns NO
+       entity label at all to domain-new proper nouns -- Anthropic,
+       Ollama, Raft, Perplexity and Alibaba are all invisible to harvest
+       1 -- while orthography still marks them. A sentence-initial
+       capital is only orthographic, so it must clear the rarity bar to
+       count; that keeps out "Begin" and "Below" while still admitting
+       "Ollama", which happens to appear exactly once, at the start of
+       its only sentence.
+    3. Rare lowercase words: quorum, tombstone, sharding.
+    4. Noun chunks containing a rare word, plus bigrams anchored on a
+       rare word. The multi-word jargon an ASR mishears -- bloom filter,
+       hinted handoff, fencing token, write skew -- is lowercase, so
+       harvest 2 cannot see it, and pyate ranks most of it below its
+       whole output. Both harvests are needed because en_core_web_sm's
+       parser mis-chunks unfamiliar noun-noun compounds: it returns
+       "a fencing" without "token", and "brain" without "split".
+
+    Known gap: a compound of two individually common words -- "split
+    brain", "vector clock" -- clears no rarity bar and survives no
+    mis-chunk, so nothing here finds it. That needs a domain lexicon.
+    """
+    tokens = list(doc)
+    for ent in doc.ents:
+        if ent.label_ in ENTITY_LABELS:
+            yield ent.text
+
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if (
+            token.is_alpha
+            and token.text[0].isupper()
+            and (not token.is_sent_start or is_rare(token.text))
+        ):
+            end = i
+            while end + 1 < len(tokens) and tokens[end + 1].is_alpha and tokens[end + 1].text[0].isupper():
+                end += 1
+            yield " ".join(t.text for t in tokens[i : end + 1])
+            i = end + 1
+            continue
+        i += 1
+
+    for token in tokens:
+        if token.is_alpha and token.text.islower() and is_rare(token.text):
+            yield token.text
+
+    for chunk in doc.noun_chunks:
+        words = list(chunk)
+        while words and (words[0].is_stop or words[0].pos_ in ("DET", "PRON")):
+            words.pop(0)
+        if len(words) > 1 and any(is_rare(w.text) for w in words):
+            yield " ".join(w.text for w in words)
+
+    for i, token in enumerate(tokens):
+        if not (token.is_alpha and is_rare(token.text)):
+            continue
+        for neighbour in (i - 1, i + 1):
+            if 0 <= neighbour < len(tokens):
+                other = tokens[neighbour]
+                if other.is_alpha and not other.is_stop:
+                    pair = sorted((i, neighbour))
+                    yield f"{tokens[pair[0]].text} {tokens[pair[1]].text}"
+
+
 def extract_entities(text: str, top_n: int | None = None) -> list[str]:
-    """Named entities from the document, most frequent first.
+    """Terms worth biasing from the document, most frequent first.
 
     This is the class of term Earnings-21's oracle bias list is made of --
     ALCOA, AIRBUS, ALAN SCHNITZER -- and the class pyate never returns.
@@ -101,10 +207,8 @@ def extract_entities(text: str, top_n: int | None = None) -> list[str]:
     counts: dict[str, int] = {}
     surface: dict[str, str] = {}
     for doc in nlp.pipe(_chunks(text), batch_size=8):
-        for ent in doc.ents:
-            if ent.label_ not in ENTITY_LABELS:
-                continue
-            name = " ".join(ent.text.split())
+        for candidate in _candidates(doc):
+            name = " ".join(candidate.split())
             if not is_biasable(name, nlp):
                 continue
             key = name.lower()

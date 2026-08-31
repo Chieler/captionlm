@@ -7,3 +7,10 @@ eval_data/
 static_assets/
 speech-datasets/
 eval_results/
+
+# read-aloud eval audio (recorded, not generated)
+read_aloud/*.wav
+read_aloud/*.m4a
+read_aloud/*.mp3
+read_aloud/*.terms.txt
+eval_results_sweep.log

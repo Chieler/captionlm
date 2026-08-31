@@ -2,6 +2,7 @@ from captionlm.biasable import (
     extract_entities,
     filter_biasable,
     is_biasable,
+    is_rare,
     merge_term_lists,
 )
 
@@ -61,3 +62,48 @@ def test_extract_entities_finds_orgs_and_people_not_common_nouns():
     # Common nouns must not survive, whatever the NER model tags.
     assert "revenue" not in lowered
     assert "shares" not in lowered
+
+
+def test_rarity_separates_words_the_asr_gets_from_words_it_misses():
+    # The threshold has to sit between these two: "node" is a common word
+    # the model already transcribes, "raft" is a protocol name it does not.
+    assert not is_rare("node")
+    assert not is_rare("line")
+    assert not is_rare("revenue")
+    assert is_rare("raft")
+    assert is_rare("quorum")
+    assert is_rare("linearizability")
+
+
+def test_rare_lowercase_jargon_is_biasable_though_it_is_no_proper_noun():
+    # The previous part-of-speech rule rejected all of these, because a
+    # lowercase common noun is exactly what they look like.
+    assert is_biasable("quorum")
+    assert is_biasable("tombstone")
+    assert is_biasable("linearizability")
+
+
+def test_capitalization_beats_rarity_for_single_words():
+    # "Apple" is a company however common "apple" is.
+    assert is_biasable("Apple")
+    assert not is_biasable("apple")
+
+
+def test_extract_entities_finds_proper_nouns_spacy_ner_does_not_label():
+    # en_core_web_sm assigns no entity label at all to any of these, and
+    # each appears exactly once, at the start of its only sentence.
+    text = (
+        "Local inference matters more than it sounds. Ollama made it trivial. "
+        "Anthropic published the protocol. Perplexity built a search product."
+    )
+    found = {t.lower() for t in extract_entities(text)}
+    assert {"ollama", "anthropic", "perplexity"} <= found
+
+
+def test_extract_entities_finds_multiword_lowercase_jargon():
+    text = (
+        "A bloom filter sits in front of each run. The defense is a fencing "
+        "token. Snapshot isolation permits write skew in practice."
+    )
+    found = {t.lower() for t in extract_entities(text)}
+    assert {"bloom filter", "fencing token", "write skew"} <= found
