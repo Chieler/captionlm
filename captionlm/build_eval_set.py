@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 
 from captionlm.config import SEC_CONTACT
 from captionlm.doc_import import extract_text
@@ -105,29 +105,50 @@ def reconstruct_transcript_text(nlp_path: str) -> str:
     return " ".join(words)
 
 
+def iter_filing_blocks(submissions: dict, call_date: str, window_days: int):
+    """Yield filings.recent, then each filings.files[] shard whose date
+    range overlaps the search window.
+
+    submissions.json caps filings.recent at ~1000 entries; for a
+    high-volume filer that is well under the two years Earnings-21
+    covers. Shard bodies carry the column arrays at the JSON root.
+    """
+    filings = submissions.get("filings", {})
+    yield filings.get("recent", {})
+
+    target = date.fromisoformat(call_date)
+    window_start = target - timedelta(days=window_days)
+    window_end = target + timedelta(days=window_days)
+    for shard in filings.get("files", []):
+        shard_from = date.fromisoformat(shard["filingFrom"])
+        shard_to = date.fromisoformat(shard["filingTo"])
+        if shard_to < window_start or shard_from > window_end:
+            continue
+        yield fetch_json(f"https://data.sec.gov/submissions/{shard['name']}")
+
+
 def find_earnings_release_filing(
     cik: str, call_date: str, submissions: dict, window_days: int = 60
 ) -> dict | None:
-    recent = submissions.get("filings", {}).get("recent", {})
-    forms = recent.get("form", [])
-    filing_dates = recent.get("filingDate", [])
-    accessions = recent.get("accessionNumber", [])
-    items = recent.get("items", [])
-
     target = date.fromisoformat(call_date)
     best = None
     best_delta = None
-    for form, filing_date, accession, item_str in zip(forms, filing_dates, accessions, items):
-        if form != "8-K":
-            continue
-        if "2.02" not in (item_str or "").split(","):
-            continue
-        delta = abs((date.fromisoformat(filing_date) - target).days)
-        if delta > window_days:
-            continue
-        if best_delta is None or delta < best_delta:
-            best = {"cik": cik, "accession": accession}
-            best_delta = delta
+    for block in iter_filing_blocks(submissions, call_date, window_days):
+        forms = block.get("form", [])
+        filing_dates = block.get("filingDate", [])
+        accessions = block.get("accessionNumber", [])
+        items = block.get("items", [])
+        for form, filing_date, accession, item_str in zip(forms, filing_dates, accessions, items):
+            if form != "8-K":
+                continue
+            if "2.02" not in (item_str or "").split(","):
+                continue
+            delta = abs((date.fromisoformat(filing_date) - target).days)
+            if delta > window_days:
+                continue
+            if best_delta is None or delta < best_delta:
+                best = {"cik": cik, "accession": accession}
+                best_delta = delta
     return best
 
 

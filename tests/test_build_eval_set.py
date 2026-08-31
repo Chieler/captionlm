@@ -7,6 +7,7 @@ from captionlm.build_eval_set import (
     assemble_eval_clip,
     estimate_call_date,
     extract_call_year,
+    find_earnings_release_filing,
     find_exhibit_document,
     reconstruct_transcript_text,
     resolve_cik_from_company_name,
@@ -273,3 +274,73 @@ def test_find_exhibit_document_falls_back_to_other_ex99(monkeypatch):
 def test_find_exhibit_document_returns_none_without_ex99(monkeypatch):
     _fake_index(monkeypatch, ["form8k.htm", "logo.jpg"])
     assert find_exhibit_document("0000320193", "0001-20-000001") is None
+
+
+SHARDED_SUBMISSIONS = {
+    "filings": {
+        "recent": {"form": [], "filingDate": [], "accessionNumber": [], "items": []},
+        "files": [
+            {
+                "name": "CIK0000320193-submissions-001.json",
+                "filingFrom": "2020-01-01",
+                "filingTo": "2020-12-31",
+            },
+            {
+                "name": "CIK0000320193-submissions-002.json",
+                "filingFrom": "2010-01-01",
+                "filingTo": "2010-12-31",
+            },
+        ],
+    }
+}
+
+SHARD_BODY = {
+    "form": ["8-K"],
+    "filingDate": ["2020-11-10"],
+    "accessionNumber": ["0001-20-000001"],
+    "items": ["2.02"],
+}
+
+
+def test_find_earnings_release_filing_searches_shards(monkeypatch):
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", lambda url: SHARD_BODY)
+
+    filing = find_earnings_release_filing("0000320193", "2020-11-15", SHARDED_SUBMISSIONS)
+
+    assert filing == {"cik": "0000320193", "accession": "0001-20-000001"}
+
+
+def test_find_earnings_release_filing_skips_out_of_window_shards(monkeypatch):
+    fetched = []
+
+    def fake_fetch(url):
+        fetched.append(url)
+        return SHARD_BODY
+
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", fake_fetch)
+
+    find_earnings_release_filing("0000320193", "2020-11-15", SHARDED_SUBMISSIONS)
+
+    assert len(fetched) == 1
+    assert "001.json" in fetched[0]
+
+
+def test_find_earnings_release_filing_without_files_key(monkeypatch):
+    def fail_if_called(url):
+        raise AssertionError("should not fetch when there are no shards")
+
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", fail_if_called)
+
+    submissions = {
+        "filings": {
+            "recent": {
+                "form": ["8-K"],
+                "filingDate": ["2020-11-10"],
+                "accessionNumber": ["0001-20-000001"],
+                "items": ["2.02"],
+            }
+        }
+    }
+    filing = find_earnings_release_filing("0000320193", "2020-11-15", submissions)
+
+    assert filing == {"cik": "0000320193", "accession": "0001-20-000001"}
