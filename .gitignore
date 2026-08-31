@@ -14,3 +14,4 @@ read_aloud/*.m4a
 read_aloud/*.mp3
 read_aloud/*.terms.txt
 eval_results_sweep.log
+read_aloud/*.mp4

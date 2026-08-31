@@ -106,4 +106,18 @@ def test_extract_entities_finds_multiword_lowercase_jargon():
         "token. Snapshot isolation permits write skew in practice."
     )
     found = {t.lower() for t in extract_entities(text)}
-    assert {"bloom filter", "fencing token", "write skew"} <= found
+    assert {"bloom filter", "fencing token"} <= found
+    # "write skew" is the documented gap: "write" tags as a VERB here, and
+    # admitting verb neighbours costs more fragments than it recovers terms.
+    assert "write skew" not in found
+
+
+def test_bigram_harvest_rejects_sentence_fragments():
+    # All three came out of the harvest before the neighbour had to be
+    # nominal, and all three are noise on any document that is not itself
+    # the transcript being scored.
+    text = "Agent tooling actually stands still. Alibaba ships open weights."
+    found = {t.lower() for t in extract_entities(text)}
+    assert "tooling actually" not in found  # adverb neighbour
+    assert "stands still" not in found  # verb neighbour
+    assert "alibaba" in found

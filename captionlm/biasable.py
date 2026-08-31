@@ -142,17 +142,25 @@ def _candidates(doc):
        "Ollama", which happens to appear exactly once, at the start of
        its only sentence.
     3. Rare lowercase words: quorum, tombstone, sharding.
-    4. Noun chunks containing a rare word, plus bigrams anchored on a
-       rare word. The multi-word jargon an ASR mishears -- bloom filter,
-       hinted handoff, fencing token, write skew -- is lowercase, so
-       harvest 2 cannot see it, and pyate ranks most of it below its
-       whole output. Both harvests are needed because en_core_web_sm's
-       parser mis-chunks unfamiliar noun-noun compounds: it returns
-       "a fencing" without "token", and "brain" without "split".
+    4. Bigrams anchored on a rare word, whose other half is nominal or
+       adjectival. The multi-word jargon an ASR mishears -- bloom filter,
+       hinted handoff, fencing token -- is lowercase, so harvest 2 cannot
+       see it, and pyate ranks most of it below its whole output. Anchor
+       on the rare word rather than parsing: en_core_web_sm mis-chunks
+       unfamiliar noun-noun compounds, returning "a fencing" without
+       "token" and "brain" without "split". Requiring the neighbour to be
+       nominal is what keeps "tooling actually" out; a noun_chunks
+       harvest was tried alongside this and removed, because it found
+       nothing the bigrams miss and added fragments of its own.
 
-    Known gap: a compound of two individually common words -- "split
-    brain", "vector clock" -- clears no rarity bar and survives no
-    mis-chunk, so nothing here finds it. That needs a domain lexicon.
+    Two known gaps, both needing a domain lexicon rather than a wider
+    rule. A compound of two common words ("split brain") clears no rarity
+    bar. A compound whose other half tags as a verb ("write skew", where
+    "write" is a VERB in "permits write skew") is excluded by the rule
+    above; admitting verbs costs more fragments than it recovers terms.
+    Compounds the tagger reads as legitimate noun pairs still slip
+    through -- "Alibaba ships", "dense open" -- and are left to the
+    false-accept measurement rather than guessed at here.
     """
     tokens = list(doc)
     for ent in doc.ents:
@@ -179,20 +187,18 @@ def _candidates(doc):
         if token.is_alpha and token.text.islower() and is_rare(token.text):
             yield token.text
 
-    for chunk in doc.noun_chunks:
-        words = list(chunk)
-        while words and (words[0].is_stop or words[0].pos_ in ("DET", "PRON")):
-            words.pop(0)
-        if len(words) > 1 and any(is_rare(w.text) for w in words):
-            yield " ".join(w.text for w in words)
-
     for i, token in enumerate(tokens):
         if not (token.is_alpha and is_rare(token.text)):
             continue
         for neighbour in (i - 1, i + 1):
             if 0 <= neighbour < len(tokens):
                 other = tokens[neighbour]
-                if other.is_alpha and not other.is_stop:
+                # Only a nominal or adjectival neighbour makes a term. Without
+                # this the harvest emits sentence fragments -- "Alibaba ships",
+                # "tooling actually", "window fills" -- which score well on a
+                # read-aloud set purely because the document IS the transcript,
+                # and are pure noise on any real document.
+                if other.is_alpha and not other.is_stop and other.pos_ in ("NOUN", "PROPN", "ADJ"):
                     pair = sorted((i, neighbour))
                     yield f"{tokens[pair[0]].text} {tokens[pair[1]].text}"
 

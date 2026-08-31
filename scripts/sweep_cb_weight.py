@@ -8,7 +8,12 @@ finding about anything.
 
 Two design choices make it separable:
 
-1. **Conditions are just named term-list files.** Running Earnings-21's
+1. **Conditions are just named term-list files.** The literal path
+   `per-clip` is the exception: it means "bias each clip with its own
+   <clip>.terms.txt", which is the configuration cli.py actually ships,
+   and the only one a product number may be quoted from. Every other
+   condition applies one list to every clip, which is what makes the
+   oracle/distractor contrast measurable but is not what a user gets. Running Earnings-21's
    own oracle list (words known to BE in the transcripts) against its
    distractor list (the same words plus ~769 Fortune 500 names and CEOs
    known NOT to be) isolates false-accept behaviour from term-extraction
@@ -36,6 +41,9 @@ from captionlm.config import MODEL_ID
 from captionlm.eval import load_clips, score, transcribe_baseline, transcribe_biased
 from captionlm.terms import load_term_list, load_tokenizer
 
+# --condition NAME=per-clip biases each clip with its own <clip>.terms.txt.
+PER_CLIP = "per-clip"
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -62,7 +70,7 @@ def main():
         name, _, path = spec.partition("=")
         if not path:
             parser.error(f"--condition needs NAME=PATH, got {spec!r}")
-        conditions[name] = load_term_list(path)
+        conditions[name] = None if path == PER_CLIP else load_term_list(path)
 
     weights = [float(w) for w in args.weights.split(",")]
     score_terms = load_term_list(args.score_terms)
@@ -70,9 +78,13 @@ def main():
 
     clips = load_clips(args.clip_dir)
     assert clips, f"no .wav/.txt pairs found in {args.clip_dir}"
+    own_terms = [clip["terms"] for clip in clips]
     print(f"{len(clips)} clips | scoring vocabulary: {len(score_terms)} terms")
     for name, terms in conditions.items():
-        print(f"  condition {name!r}: {len(terms)} terms")
+        if terms is None:
+            print(f"  condition {name!r}: per-clip, {[len(t) for t in own_terms]} terms")
+        else:
+            print(f"  condition {name!r}: {len(terms)} terms")
 
     model = load_biased_model(args.model)
     tokenizer = load_tokenizer(args.model)
@@ -91,8 +103,9 @@ def main():
 
     rows = []
     for name, terms in conditions.items():
-        for clip in clips:
-            clip["terms"] = terms
+        for clip, own in zip(clips, own_terms):
+            clip["terms"] = own if terms is None else terms
+        n_terms = sum(len(c["terms"]) for c in clips) // len(clips) if terms is None else len(terms)
         for weight in weights:
             t0 = time.time()
             biased = transcribe_biased(model, clips, tokenizer, blank_idx, cb_weight=weight)
@@ -101,7 +114,7 @@ def main():
             row = {
                 "condition": name,
                 "cb_weight": weight,
-                "n_terms": len(terms),
+                "n_terms": n_terms,
                 **b,
                 "wer_delta": b["wer"] - base_stats["wer"],
                 "fscore_delta": b["fscore"] - base_stats["fscore"],
