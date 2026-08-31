@@ -131,15 +131,32 @@ def find_earnings_release_filing(
     return best
 
 
+def _exhibit_rank(name: str) -> int:
+    """0 for EX-99.1 (the press release), 1 for any other EX-99.x.
+
+    EX-99.2 on an earnings 8-K is usually the slide deck or supplemental
+    tables; term extraction over tabular text yields column headers that
+    are never spoken on the call.
+    """
+    lowered = name.lower()
+    if any(marker in lowered for marker in ("ex99-1", "ex99.1", "ex991", "ex99_1", "ex99d1", "ex-99.1")):
+        return 0
+    return 1
+
+
 def find_exhibit_document(cik: str, accession: str) -> str | None:
     accession_nodashes = accession.replace("-", "")
     index_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodashes}/index.json"
     index = fetch_json(index_url)
-    for item in index.get("directory", {}).get("item", []):
-        name = item.get("name", "")
-        if "ex99" in name.lower() or "ex-99" in name.lower():
-            return name
-    return None
+    candidates = [
+        item.get("name", "")
+        for item in index.get("directory", {}).get("item", [])
+        if "ex99" in item.get("name", "").lower() or "ex-99" in item.get("name", "").lower()
+    ]
+    if not candidates:
+        return None
+    # min() is stable, so equal-ranked candidates keep index.json order.
+    return min(candidates, key=_exhibit_rank)
 
 
 def fetch_filing_text(url: str) -> str:

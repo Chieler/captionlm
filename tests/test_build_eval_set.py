@@ -7,6 +7,7 @@ from captionlm.build_eval_set import (
     assemble_eval_clip,
     estimate_call_date,
     extract_call_year,
+    find_exhibit_document,
     reconstruct_transcript_text,
     resolve_cik_from_company_name,
 )
@@ -245,3 +246,30 @@ def test_assemble_eval_clip_writes_per_clip_terms_file(tmp_path, monkeypatch):
     assert terms_file.exists()
     written = [line for line in terms_file.read_text(encoding="utf-8").splitlines() if line]
     assert written == result["terms"]
+
+
+def _fake_index(monkeypatch, names):
+    monkeypatch.setattr(
+        "captionlm.build_eval_set.fetch_json",
+        lambda url: {"directory": {"item": [{"name": n} for n in names]}},
+    )
+
+
+def test_find_exhibit_document_prefers_ex99_1(monkeypatch):
+    _fake_index(monkeypatch, ["ex99-2.htm", "ex99-1.htm"])
+    assert find_exhibit_document("0000320193", "0001-20-000001") == "ex99-1.htm"
+
+
+def test_find_exhibit_document_prefers_dotted_ex99_1(monkeypatch):
+    _fake_index(monkeypatch, ["a-ex99d2.htm", "a-ex99.1.htm"])
+    assert find_exhibit_document("0000320193", "0001-20-000001") == "a-ex99.1.htm"
+
+
+def test_find_exhibit_document_falls_back_to_other_ex99(monkeypatch):
+    _fake_index(monkeypatch, ["form8k.htm", "ex99-2.htm"])
+    assert find_exhibit_document("0000320193", "0001-20-000001") == "ex99-2.htm"
+
+
+def test_find_exhibit_document_returns_none_without_ex99(monkeypatch):
+    _fake_index(monkeypatch, ["form8k.htm", "logo.jpg"])
+    assert find_exhibit_document("0000320193", "0001-20-000001") is None
