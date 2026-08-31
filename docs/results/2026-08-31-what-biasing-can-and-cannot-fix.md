@@ -110,13 +110,54 @@ errors. The replacement histogram shows the same thing from the other
 side: 152 clean 2-word-for-2-word replacements against 14 that turn
 three words into two.
 
-**Correction to an earlier reading in this document's first revision.**
-The duplicated span `"Grock built custom silicon Grock built custom
-silicon"` was attributed here to a defect in the merge logic. It is not.
-It is present in the *unbiased* baseline at both model sizes; the
-acoustic model repeats the phrase on its own, and biasing only shifts
-where the aligner charges the error. Nothing in the spotter or the merge
-produces it.
+**Correction, twice over.** The duplicated span `"Grock built custom
+silicon Grock built custom silicon"` was first attributed to a defect in
+the merge logic, then to the acoustic model repeating itself. Both are
+wrong. The reader restarted that sentence while recording, and the model
+transcribed the restart faithfully. The tell was already visible: it
+appears identically at both model sizes, which a hallucination would not
+do. Nothing in the spotter, the merge, or the model produces it.
+
+## Disfluency: a known confound in the reference
+
+The reader stuttered and restarted several times. The reference is the
+script, so every disfluency the model transcribes correctly is scored as
+an insertion. Of 22 insertions in the unbiased 1.1b hypotheses, six carry
+a clear disfluency signature:
+
+```
+'the chunking strategy is [always part is] almost always the part'   restart
+'the failure [models the failure] modes'                             restart
+'the wrong tool they [fall they] fail'                               stutter
+'into a sequential [attempt] appends'                                partial word
+'the trained [mod] weights'                                          partial word
+'fragmented grock built custom silicon [grock built ...]'            restart
+```
+
+The others are genuine model errors that happen to insert: `[bar] rails`
+for "guardrails", `[nt] entropy` for "anti-entropy", `[quark] code` for
+"Claude".
+
+Six of 96 residual error spans at 1.1b is roughly 6%, so **absolute WER
+on this set is inflated by something on the order of 0.005**. Quote the
+numbers here as comparisons, not as accuracy.
+
+Every comparison in this document survives intact, because all of them
+run the same audio through different configurations: the cb_weight
+optimum, the biased-versus-unbiased delta, the 110m-versus-1.1b delta and
+the merge instrumentation are all differences over a shared reference,
+and a constant inflation cancels.
+
+What it does change is one attribution above: part of the "residual
+elsewhere" bucket credited to acoustic model capacity is the model
+getting the audio *right* against a reference that does not match it.
+
+**Removing disfluency does not fit the current design.** The spotter
+matches audio to token sequences and `merge_spans` splices frame spans;
+neither can know a speaker restarted. Collapsing "always part is almost
+always the part" needs sentence-level understanding, which is the same
+machinery as the deferred document-conditioned rescoring pass. It is
+folded into that spike rather than planned separately.
 
 ## What biasing structurally cannot fix
 

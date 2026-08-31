@@ -627,6 +627,16 @@ git commit -m "Record what the precision plan was worth, at both model sizes"
 
 It needs a spike first, against the two read-aloud clips whose true answers are known exactly, answering: given the biased transcript and the source document, does an LLM fix `Grok` -> `Groq` without introducing new errors, and at what latency? If yes, it earns its own spec and plan. The architecture would be a new module consuming an `AlignedResult` and returning a corrected one, so it does not disturb anything above.
 
+**Disfluency removal.** The read-aloud recordings contain stutters and
+restarts, so the model is charged for insertions it transcribed
+correctly — roughly 6% of the residual. Nothing in the current design can
+remove them: the spotter matches audio to token sequences and
+`merge_spans` splices frame spans, and neither can know a speaker
+restarted. It needs the same sentence-level pass as the rescoring spike
+above, so it is folded into that spike rather than planned separately.
+Tasks in this plan are unaffected: every measurement they make is a
+comparison over the same audio, where a constant inflation cancels.
+
 **N-best decoding.** `parakeet_mlx` implements `decode_beam`, but it returns one hypothesis per batch item. Exposing N-best means forking 212 lines of decoder, and the spike above is designed not to need it.
 
 **Raising `TERM_EXTRACTION_TOP_N`.** Confounded by the read-aloud set's upper-bound property. See the Global Constraints.
