@@ -5,3 +5,5 @@ __pycache__/
 vendor_data/
 eval_data/
 static_assets/
+speech-datasets/
+eval_results/

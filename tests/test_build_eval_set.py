@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from captionlm.build_eval_set import (
+    _normalize_company_name,
     assemble_eval_clip,
+    find_exhibit_by_type,
     estimate_call_date,
     extract_call_year,
     find_earnings_release_filing,
@@ -344,3 +346,55 @@ def test_find_earnings_release_filing_without_files_key(monkeypatch):
     filing = find_earnings_release_filing("0000320193", "2020-11-15", submissions)
 
     assert filing == {"cik": "0000320193", "accession": "0001-20-000001"}
+
+
+def test_normalize_company_name_strips_suffixes_repeatedly():
+    # SEC lists Adtran as "ADTRAN Holdings, Inc." after its 2022 holdco
+    # reorg; one pass would leave "ADTRAN HOLDINGS" and never match.
+    assert _normalize_company_name("ADTRAN Holdings, Inc.") == "ADTRAN"
+    assert _normalize_company_name("Adtran Inc") == "ADTRAN"
+    assert _normalize_company_name("Hershey Company") == "HERSHEY"
+    assert _normalize_company_name("HERSHEY CO") == "HERSHEY"
+
+
+def test_resolve_cik_falls_back_to_unique_prefix():
+    tickers = {"0": {"cik_str": 72741, "ticker": "ES", "title": "EVERSOURCE ENERGY"}}
+    assert resolve_cik_from_company_name("Eversource", tickers) == "0000072741"
+
+
+def test_resolve_cik_refuses_ambiguous_prefix():
+    tickers = {
+        "0": {"cik_str": 111111, "ticker": "APLE", "title": "Apple Hospitality REIT"},
+        "1": {"cik_str": 222222, "ticker": "AVB", "title": "Apple Valley Bancorp"},
+    }
+    # No exact match, and "APPLE" prefixes both, so guessing would be wrong
+    # half the time. Refusing is the safe answer.
+    assert resolve_cik_from_company_name("Apple", tickers) is None
+
+
+def test_resolve_cik_prefers_exact_match_over_prefix():
+    tickers = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc"},
+        "1": {"cik_str": 111111, "ticker": "APLE", "title": "Apple Hospitality REIT"},
+    }
+    # "Apple" normalizes equal to "Apple Inc", so the exact match wins
+    # outright and the ambiguous prefix never comes into play.
+    assert resolve_cik_from_company_name("Apple", tickers) == "0000320193"
+
+
+def test_find_exhibit_by_type_reads_escaped_sgml_header(monkeypatch):
+    # Cumulus filed its release as cmls20200930earningsre.htm -- no "ex99"
+    # substring, so only the SGML <TYPE> tag finds it.
+    header = (
+        "&lt;TYPE&gt;8-K\n&lt;FILENAME&gt;cmls-20201105.htm\n"
+        "&lt;TYPE&gt;EX-99.1\n&lt;FILENAME&gt;cmls20200930earningsre.htm\n"
+        "&lt;TYPE&gt;GRAPHIC\n&lt;FILENAME&gt;logo.jpg\n"
+    )
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_url", lambda url: header.encode())
+    assert find_exhibit_by_type("0001058623", "0001058623-20-000055") == "cmls20200930earningsre.htm"
+
+
+def test_find_exhibit_by_type_returns_none_without_ex99(monkeypatch):
+    header = "&lt;TYPE&gt;8-K\n&lt;FILENAME&gt;form8k.htm\n"
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_url", lambda url: header.encode())
+    assert find_exhibit_by_type("0001058623", "0001058623-20-000055") is None

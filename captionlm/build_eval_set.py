@@ -29,6 +29,7 @@ from captionlm.eval_dataset import (
     SUBMISSIONS_URL_TEMPLATE,
     build_filing_url,
     fetch_json,
+    fetch_url,
 )
 from captionlm.term_extraction import extract_terms, write_term_list
 
@@ -72,20 +73,55 @@ def estimate_call_date(year: int, financial_quarter: int) -> str:
     return f"{year:04d}-{month:02d}-{day:02d}"
 
 
+_NAME_SUFFIXES = (
+    " INCORPORATED", " INC", " CORPORATION", " CORP", " COMPANY", " CO",
+    " LIMITED", " LTD", " LLC", " PLC", " HOLDINGS", " HOLDING", " GROUP",
+    " THE", " & CO",
+)
+
+
 def _normalize_company_name(name: str) -> str:
+    """Upper-case, drop punctuation, and strip corporate suffixes REPEATEDLY.
+
+    One pass is not enough: SEC lists Adtran as "ADTRAN Holdings, Inc.",
+    so stripping only " INC" leaves "ADTRAN HOLDINGS", which never matches
+    Earnings-21's "Adtran Inc".
+    """
     name = re.sub(r"[.,]", "", name.upper())
-    for suffix in (" INC", " CORPORATION", " CORP", " CO", " LTD", " LLC", " PLC"):
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
-            break
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _NAME_SUFFIXES:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                name = name[: -len(suffix)].strip()
+                changed = True
+                break
     return name.strip()
 
 
 def resolve_cik_from_company_name(company_name: str, company_tickers: dict) -> str | None:
+    """Resolve a CIK by company name, exact normalized match first.
+
+    Falls back to a UNIQUE prefix match, because Earnings-21 names are
+    often shorter than SEC's ("Eversource" vs "EVERSOURCE ENERGY"). The
+    uniqueness requirement is what keeps the fallback safe: "APPLE"
+    prefixes both "APPLE INC" and "APPLE HOSPITALITY REIT", so it is
+    ambiguous and correctly refused rather than guessed.
+    """
     target = _normalize_company_name(company_name)
+    if not target:
+        return None
+
+    prefix_hits = []
     for entry in company_tickers.values():
-        if _normalize_company_name(entry.get("title", "")) == target:
+        title = _normalize_company_name(entry.get("title", ""))
+        if title == target:
             return f"{entry['cik_str']:010d}"
+        if title.startswith(target + " ") or target.startswith(title + " "):
+            prefix_hits.append(entry)
+
+    if len(prefix_hits) == 1:
+        return f"{prefix_hits[0]['cik_str']:010d}"
     return None
 
 
@@ -165,7 +201,49 @@ def _exhibit_rank(name: str) -> int:
     return 1
 
 
+def find_exhibit_by_type(cik: str, accession: str) -> str | None:
+    """Resolve the EX-99.1 document from the filing's SGML header.
+
+    Filers name exhibit files freely -- Cumulus Media filed its Q3 2020
+    release as `cmls20200930earningsre.htm`, which contains no "ex99"
+    substring at all, so matching on filename silently loses those
+    filings. The <TYPE>/<FILENAME> pairs in the index-headers document are
+    EDGAR's own authoritative answer, so ask it instead of guessing.
+    """
+    accession_nodashes = accession.replace("-", "")
+    url = (
+        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodashes}/"
+        f"{accession}-index-headers.html"
+    )
+    try:
+        html = fetch_url(url).decode("utf-8", "replace")
+    except Exception:
+        return None
+
+    # The header is HTML-escaped SGML: &lt;TYPE&gt;EX-99.1 ... &lt;FILENAME&gt;foo.htm
+    pairs = re.findall(
+        r"(?:&lt;|<)TYPE(?:&gt;|>)\s*([^\s<&]+).*?(?:&lt;|<)FILENAME(?:&gt;|>)\s*([^\s<&]+)",
+        html,
+        re.S,
+    )
+    exhibits = [(t.upper(), f) for t, f in pairs if t.upper().startswith("EX-99")]
+    if not exhibits:
+        return None
+    exact = [f for t, f in exhibits if t == "EX-99.1"]
+    return exact[0] if exact else exhibits[0][1]
+
+
 def find_exhibit_document(cik: str, accession: str) -> str | None:
+    """Locate the earnings press release exhibit in an 8-K.
+
+    Asks EDGAR's SGML header for the document typed EX-99.1 first, and
+    only falls back to the filename heuristic when the header is
+    unavailable or lists no EX-99 document.
+    """
+    by_type = find_exhibit_by_type(cik, accession)
+    if by_type:
+        return by_type
+
     accession_nodashes = accession.replace("-", "")
     index_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodashes}/index.json"
     index = fetch_json(index_url)
