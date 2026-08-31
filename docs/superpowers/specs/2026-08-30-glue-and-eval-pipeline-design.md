@@ -84,9 +84,6 @@ captionlm/build_eval_set.py                          [NEW]
 
   reconstruct_transcript_text(nlp_path: str) -> str
       joins the .nlp file's token+punctuation columns into plain text
-      (jiwer's default transform lowercases and strips punctuation on
-      both sides anyway, so exact casing/spacing fidelity isn't load-
-      bearing here)
 
   fetch_filing_text(url: str) -> str
       urllib download (SEC_CONTACT User-Agent) → temp .htm file
@@ -125,6 +122,20 @@ captionlm/eval.py (unchanged)
       → real WER + F-score, biasing on vs off
 ```
 
+**Correction (2026-08-31):** this is false for jiwer 4.0.0.
+`jiwer.wer_default` is `[RemoveMultipleSpaces, Strip,
+ReduceToListOfListOfWords]` — no lowercasing, no punctuation stripping.
+`jiwer.wer("Net Sales grew.", "net sales grew")` returns 1.0. The model
+emits cased, punctuated text and the references are rebuilt from the
+`.nlp` token+punctuation columns, so the first run's reported WER
+conflated recognition errors with casing and punctuation mismatch.
+`eval.py` now passes `wer_standardize` on both sides explicitly.
+
+The Task-2 review cited this claim as its "cost if wrong is zero"
+justification for parking the `case`-column finding. That justification
+does not hold, and the parked finding should be re-examined on its
+merits.
+
 ### Why not call `eval_dataset.assemble_triple` directly
 
 `assemble_triple` composes `resolve_cik` → `find_press_release_filing`
@@ -138,6 +149,13 @@ directly with `window_days=60`, alongside `resolve_cik_from_company_name`
 (a new function, since Earnings-21 gives a company name, not a ticker —
 see below) in place of `resolve_cik`. Nothing about `eval_dataset.py`
 changes.
+
+**Correction (2026-08-31):** `5d49542` moved this logic into
+`build_eval_set.find_earnings_release_filing`, which adds the Item 2.02
+filter that `find_press_release_filing` lacked. `eval_dataset.py` now
+exports only the EDGAR HTTP primitives (`fetch_json`,
+`build_filing_url`, and the two URL constants); its lookup functions
+were deleted as dead code.
 
 ### Why a new orchestrator module, not spread across existing files
 
@@ -263,3 +281,11 @@ than guessed at.
    it**: `build_eval_set.py` against 5 real calls, then `eval.py`
    against the assembled clip set. Report real WER/F-score numbers,
    biasing on vs off.
+
+**Correction (2026-08-31):** the 2026-08-30 run produced two result sets
+that are not comparable. The first (WER 0.263 baseline / 0.268 biased)
+used 5 clips whose terms came from 8-K cover pages and unrelated
+filings, and is invalid. The second (0.260 / 0.262) used 2 clips with
+real EX-99.1 text. Different clip sets and different sample sizes: the
+0.263 to 0.260 movement is not an improvement, it is a different
+experiment.
