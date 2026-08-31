@@ -206,6 +206,7 @@ def assemble_eval_clip(
         f.write(reconstruct_transcript_text(nlp_path))
     with open(os.path.join(out_dir, f"{file_id}.doc.txt"), "w", encoding="utf-8") as f:
         f.write(filing_text)
+    write_term_list(terms, os.path.join(out_dir, f"{file_id}.terms.txt"))
 
     return {"file_id": file_id, "terms": terms, "filing_url": filing_url}
 

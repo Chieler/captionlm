@@ -190,3 +190,58 @@ def test_assemble_eval_clip_skips_when_no_item_202_8k(tmp_path, monkeypatch):
         "789", "Test Company", 3, "unused.mp3", str(nlp_path), str(wer_tags_path), str(tmp_path / "clips")
     )
     assert result is None
+
+
+def test_assemble_eval_clip_writes_per_clip_terms_file(tmp_path, monkeypatch):
+    nlp_path = tmp_path / "123.nlp"
+    _write_nlp_fixture(
+        nlp_path,
+        [
+            "Good|0||||UC|[]|[]",
+            "morning|0||||LC|[]|[]",
+            "third|0||||LC|[]|[]",
+            "quarter|0||||LC|[]|[]",
+            "2020|0||||CA|[]|['1']",
+        ],
+    )
+    wer_tags_path = tmp_path / "123.wer_tag.json"
+    wer_tags_path.write_text(json.dumps({"1": {"entity_type": "YEAR"}}), encoding="utf-8")
+    audio_path = tmp_path / "123.mp3"
+    audio_path.write_bytes(b"\x00")
+    out_dir = tmp_path / "clips"
+
+    def fake_fetch_json(url):
+        if "company_tickers" in url:
+            return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Test Company"}}
+        if "index.json" in url:
+            return {"directory": {"item": [{"name": "ex991-pr.htm"}]}}
+        return {
+            "filings": {
+                "recent": {
+                    "form": ["8-K"],
+                    "filingDate": ["2020-11-10"],
+                    "accessionNumber": ["0001-20-000001"],
+                    "primaryDocument": ["pr.htm"],
+                    "items": ["2.02"],
+                }
+            }
+        }
+
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", fake_fetch_json)
+    monkeypatch.setattr(
+        "captionlm.build_eval_set.fetch_filing_text",
+        lambda url: "The kubernetes cluster grew revenue this quarter.",
+    )
+    monkeypatch.setattr(
+        "captionlm.build_eval_set.convert_to_wav",
+        lambda mp3, wav: Path(wav).write_bytes(b"RIFF....WAVEfmt "),
+    )
+
+    result = assemble_eval_clip(
+        "123", "Test Company", 3, str(audio_path), str(nlp_path), str(wer_tags_path), str(out_dir)
+    )
+
+    terms_file = out_dir / "123.terms.txt"
+    assert terms_file.exists()
+    written = [line for line in terms_file.read_text(encoding="utf-8").splitlines() if line]
+    assert written == result["terms"]
