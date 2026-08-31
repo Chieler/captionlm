@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 vendor_data/
 eval_data/
+static_assets/

@@ -1,7 +1,10 @@
 import json
+from pathlib import Path
+
 import pytest
 
 from captionlm.build_eval_set import (
+    assemble_eval_clip,
     estimate_call_date,
     extract_call_year,
     reconstruct_transcript_text,
@@ -78,11 +81,6 @@ def test_reconstruct_transcript_text(tmp_path):
     assert reconstruct_transcript_text(str(nlp_path)) == "Good morning everyone."
 
 
-from pathlib import Path
-
-from captionlm.build_eval_set import assemble_eval_clip
-
-
 def test_assemble_eval_clip_writes_expected_files(tmp_path, monkeypatch):
     nlp_path = tmp_path / "123.nlp"
     _write_nlp_fixture(
@@ -104,6 +102,8 @@ def test_assemble_eval_clip_writes_expected_files(tmp_path, monkeypatch):
     def fake_fetch_json(url):
         if "company_tickers" in url:
             return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Test Company"}}
+        if "index.json" in url:
+            return {"directory": {"item": [{"name": "ex991-pr.htm"}]}}
         return {
             "filings": {
                 "recent": {
@@ -111,6 +111,7 @@ def test_assemble_eval_clip_writes_expected_files(tmp_path, monkeypatch):
                     "filingDate": ["2020-11-10"],
                     "accessionNumber": ["0001-20-000001"],
                     "primaryDocument": ["pr.htm"],
+                    "items": ["2.02"],
                 }
             }
         }
@@ -149,5 +150,43 @@ def test_assemble_eval_clip_skips_when_no_year_found(tmp_path):
 
     result = assemble_eval_clip(
         "456", "Test Company", 3, "unused.mp3", str(nlp_path), str(wer_tags_path), str(tmp_path / "clips")
+    )
+    assert result is None
+
+
+def test_assemble_eval_clip_skips_when_no_item_202_8k(tmp_path, monkeypatch):
+    nlp_path = tmp_path / "789.nlp"
+    _write_nlp_fixture(
+        nlp_path,
+        [
+            "Good|0||||UC|[]|[]",
+            "morning|0||||LC|[]|[]",
+            "third|0||||LC|[]|[]",
+            "quarter|0||||LC|[]|[]",
+            "2020|0||||CA|[]|['1']",
+        ],
+    )
+    wer_tags_path = tmp_path / "789.wer_tag.json"
+    wer_tags_path.write_text(json.dumps({"1": {"entity_type": "YEAR"}}), encoding="utf-8")
+
+    def fake_fetch_json(url):
+        if "company_tickers" in url:
+            return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Test Company"}}
+        return {
+            "filings": {
+                "recent": {
+                    "form": ["8-K"],
+                    "filingDate": ["2020-11-10"],
+                    "accessionNumber": ["0001-20-000001"],
+                    "primaryDocument": ["pr.htm"],
+                    "items": ["8.01"],
+                }
+            }
+        }
+
+    monkeypatch.setattr("captionlm.build_eval_set.fetch_json", fake_fetch_json)
+
+    result = assemble_eval_clip(
+        "789", "Test Company", 3, "unused.mp3", str(nlp_path), str(wer_tags_path), str(tmp_path / "clips")
     )
     assert result is None
