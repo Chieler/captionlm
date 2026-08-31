@@ -82,14 +82,41 @@ gains *more* on the larger model (-0.0231 vs -0.0171), and residual
 term errors barely move between the two (35 -> 33). The big model does
 not fix terms; biasing does not fix grammar.
 
-**The spotter damages its neighbours.** It introduces 37 new errors at
-110m and 16 at 1.1b while fixing 59 and 45 — a 26% collateral rate even
-at the better model. The breakage is function words adjacent to boosted
-spans, plus one catastrophic duplicated insertion,
-`"ciliton grok built custom silicon"`, which looks like a defect in the
-intersection/merge logic rather than a tuning artifact. That roughly half
-the collateral disappears with a larger model suggests part of it was
-simply the 110m being easy to knock off its alignment.
+**The spotter damages its neighbours, and the cause is `merge_spans`.**
+It introduces 37 new errors at 110m and 16 at 1.1b while fixing 59 and
+45 — a 26% collateral rate even at the better model.
+
+Decoding is not the culprit and never was. `BiasedParakeetTDTCTC.generate`
+already runs an unbiased TDT decode, spots over the CTC head separately,
+and splices the two with `merge_spans`; the acoustic search is never
+perturbed. Instrumenting `merge_spans` over both clips at cb_weight 3.0
+shows the real mechanism: 16 replacements are lossy, destroying 16 words
+outright, and they share one shape.
+
+```
+'the hard parts'      -> 'hard parts'
+'the base weights'    -> 'base weights'
+'a small model'       -> 'small model'
+'the wrong tool.'     -> 'wrong tool'
+'a fencing token,'    -> 'fencing token'
+'protocol to'         -> 'protocols'
+```
+
+A spotted keyword whose frame span overlaps the preceding article by the
+`intersection_threshold` of 30% consumes that article, and
+`merge_spans` replaces the whole consumed range with the keyword alone.
+That is exactly the deleted-`the`, deleted-`a` pattern in the introduced
+errors. The replacement histogram shows the same thing from the other
+side: 152 clean 2-word-for-2-word replacements against 14 that turn
+three words into two.
+
+**Correction to an earlier reading in this document's first revision.**
+The duplicated span `"Grock built custom silicon Grock built custom
+silicon"` was attributed here to a defect in the merge logic. It is not.
+It is present in the *unbiased* baseline at both model sizes; the
+acoustic model repeats the phrase on its own, and biasing only shifts
+where the aligner charges the error. Nothing in the spotter or the merge
+produces it.
 
 ## What biasing structurally cannot fix
 
