@@ -29,6 +29,13 @@ def build_context_graph(
     tokenizer: spm.SentencePieceProcessor,
     blank_idx: int,
 ) -> ContextGraphCTC:
+    if blank_idx != tokenizer.get_piece_size():
+        raise ValueError(
+            f"blank_idx {blank_idx} does not match this tokenizer's vocabulary "
+            f"size {tokenizer.get_piece_size()}. The tokenizer and the model "
+            f"weights come from different model ids; the token ids would "
+            f"address the wrong vocabulary and the graph would never fire."
+        )
     graph = ContextGraphCTC(blank_id=blank_idx)
     word_items = []
     for term in terms:
