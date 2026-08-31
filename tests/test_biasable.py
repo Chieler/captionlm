@@ -121,4 +121,3 @@ def test_bigram_harvest_rejects_sentence_fragments():
     assert "tooling actually" not in found  # adverb neighbour
     assert "stands still" not in found  # verb neighbour
     assert "alibaba" in found
-
