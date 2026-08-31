@@ -42,14 +42,14 @@ Tasks 1, 3, 4 all touch `build_eval_set.py` but different functions, and are ind
 ## Task 1: Per-clip term list written at assembly time
 
 **Files:**
-- Modify: `captionlm/build_eval_set.py:199-208` (`assemble_eval_clip`)
+- Modify: `captionlm/build_eval_set.py:167-214` (`assemble_eval_clip`; the `.doc.txt` write is at line 207)
 - Test: `tests/test_build_eval_set.py`
 
 **Interfaces:**
 - Consumes: `write_term_list(terms: list[str], path: str) -> None`, already imported at `build_eval_set.py:33`.
 - Produces: `assemble_eval_clip` now writes a fourth file per clip, `<out_dir>/<file_id>.terms.txt`, one term per line. Task 2 reads this filename.
 
-**Context:** `main()` currently unions every clip's terms into a single `eval_data/terms.txt` (`build_eval_set.py:262`), and `eval.py` loads that one file for all clips. With `TERM_EXTRACTION_TOP_N = 50` and 5 clips the context graph carries ~250 terms, ~200 of which belong to other companies and can only ever produce false accepts. Keep writing the combined file — `compute_fscore` must score against the full term vocabulary, and shrinking that would change the metric rather than the method. Only the *context graph* becomes per-clip.
+**Context:** `main()` currently unions every clip's terms into a single `eval_data/terms.txt` (`build_eval_set.py:268`), and `eval.py` loads that one file for all clips. With `TERM_EXTRACTION_TOP_N = 50` and 5 clips the context graph carries ~250 terms, ~200 of which belong to other companies and can only ever produce false accepts. Keep writing the combined file — `compute_fscore` must score against the full term vocabulary, and shrinking that would change the metric rather than the method. Only the *context graph* becomes per-clip.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -514,7 +514,7 @@ multi-hour run leaves more behind than four printed floats."
 ## Task 3: Prefer EX-99.1 over other EX-99.x exhibits
 
 **Files:**
-- Modify: `captionlm/build_eval_set.py:132-140` (`find_exhibit_document`)
+- Modify: `captionlm/build_eval_set.py:134-142` (`find_exhibit_document`)
 - Test: `tests/test_build_eval_set.py`
 
 **Interfaces:**
@@ -634,7 +634,7 @@ back to any other ex99 when there is no .1."
 ## Task 4: Paginate EDGAR's `filings.files[]` shards
 
 **Files:**
-- Modify: `captionlm/build_eval_set.py:23` (import) and `106-129` (`find_earnings_release_filing`)
+- Modify: `captionlm/build_eval_set.py:23` (the `datetime` import) and `108-131` (`find_earnings_release_filing`)
 - Test: `tests/test_build_eval_set.py`
 
 **Interfaces:**
@@ -728,7 +728,7 @@ Expected: the first two FAIL with `assert None == {'cik': ...}` and `assert 0 ==
 
 - [ ] **Step 3: Write the implementation**
 
-Change the import at `captionlm/build_eval_set.py:23`:
+Change the `datetime` import at `captionlm/build_eval_set.py:23` (currently `from datetime import date`):
 
 ```python
 from datetime import date, timedelta
@@ -818,7 +818,7 @@ those whose filingFrom/filingTo range overlaps the search window."
 **Depends on:** Tasks 1, 2, 3. Do not start earlier — sweeping against a polluted 250-term graph tunes around the Task 1 bug instead of fixing it.
 
 **Files:**
-- Modify: `captionlm/config.py:20` (the `cb_weight` value and the `SpotterConfig` docstring)
+- Modify: `captionlm/config.py:20` (the `cb_weight` value) and `captionlm/config.py:15-17` (the `SpotterConfig` docstring)
 - Modify: `docs/superpowers/specs/2026-08-31-eval-fidelity-and-biasing-tuning-design.md` (add the results table)
 - Create: `eval_results/sweep-<cb_weight>.json` (gitignored working files)
 
@@ -994,7 +994,7 @@ thousandths of recall. Sweep the weight and ship the measured value."
 **Depends on:** Task 5, so the spec's numbers can be corrected in one edit.
 
 **Files:**
-- Modify: `captionlm/eval_dataset.py` — delete `resolve_cik` (lines 20-25), `find_press_release_filing` (28-49), `assemble_triple` (65-77)
+- Modify: `captionlm/eval_dataset.py` — delete `resolve_cik` (lines 20-25), `find_press_release_filing` (28-49), `assemble_triple` (65-77). Line numbers are against the file as of commit `4767f29`.
 - Modify: `tests/test_eval_dataset.py` — delete the four tests covering them
 - Modify: `docs/superpowers/specs/2026-08-30-glue-and-eval-pipeline-design.md`
 

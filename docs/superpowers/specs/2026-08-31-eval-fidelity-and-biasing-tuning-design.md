@@ -80,7 +80,7 @@ The only user-visible first-run latency is a download, not a train: the
 ### S1 — Per-clip term lists
 
 `build_eval_set.py:262` unions every clip's extracted terms into one
-`terms.txt`, and `eval.py:43` loads that single file for all clips. With
+`terms.txt`, and `eval.py:72` loads that single file for all clips. With
 `TERM_EXTRACTION_TOP_N = 50` and 5 clips, the context graph carries ~250
 terms, of which ~200 belong to other companies' filings.
 
@@ -154,7 +154,7 @@ is one float in `config.py`.
 ### S3 — Persist per-clip eval output
 
 `run_eval` builds a rich result and `main()` prints four floats
-(`eval.py:88-90`). Nothing is written to disk. The 2026-08-30 artifacts
+(`eval.py:107-109`). Nothing is written to disk. The 2026-08-30 artifacts
 lived in a gitignored directory inside a deleted worktree, so a ~4-hour
 run survives only as the numbers in this document.
 
