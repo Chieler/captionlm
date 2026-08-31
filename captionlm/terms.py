@@ -30,6 +30,9 @@ def build_context_graph(
     blank_idx: int,
 ) -> ContextGraphCTC:
     graph = ContextGraphCTC(blank_id=blank_idx)
-    word_items = [(term, [tokenizer.encode(term, out_type=int)]) for term in terms]
+    word_items = []
+    for term in terms:
+        variants = {term, term.lower()}
+        word_items.append((term, [tokenizer.encode(v, out_type=int) for v in variants]))
     graph.add_to_graph(word_items)
     return graph

@@ -14,6 +14,35 @@ from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
 from captionlm.vendor.fscore import compute_fscore
 
 
+# jiwer 4.0.0's default transform does NOT normalize -- wer_default is
+# [RemoveMultipleSpaces, Strip, ReduceToListOfListOfWords], so
+# jiwer.wer("Net Sales grew.", "net sales grew") is 1.0. The model emits
+# cased, punctuated text and the references are rebuilt from the .nlp
+# token+punctuation columns, so without this the score conflates
+# recognition errors with casing and punctuation mismatch.
+#
+# jiwer's own wer_standardize is not the fix: it includes RemoveWhiteSpace,
+# which glues every word into a single token. Compose it explicitly.
+_NORMALIZE = jiwer.Compose(
+    [
+        jiwer.ToLowerCase(),
+        jiwer.RemovePunctuation(),
+        jiwer.RemoveMultipleSpaces(),
+        jiwer.Strip(),
+        jiwer.ReduceToListOfListOfWords(),
+    ]
+)
+
+
+def _wer(references: list[str], hypotheses: list[str]) -> float:
+    return jiwer.wer(
+        references,
+        hypotheses,
+        reference_transform=_NORMALIZE,
+        hypothesis_transform=_NORMALIZE,
+    )
+
+
 def load_clips(clip_dir: str) -> list[dict]:
     clips = []
     for wav_path in sorted(glob.glob(os.path.join(clip_dir, "*.wav"))):
@@ -55,8 +84,8 @@ def run_eval(
     biased = transcribe_clips(model, clips)
 
     references = [c["text"] for c in clips]
-    baseline_wer = jiwer.wer(references, [s["pred_text"] for s in baseline])
-    biased_wer = jiwer.wer(references, [s["pred_text"] for s in biased])
+    baseline_wer = _wer(references, [s["pred_text"] for s in baseline])
+    biased_wer = _wer(references, [s["pred_text"] for s in biased])
 
     baseline_p, baseline_r, baseline_f = compute_fscore(baseline, terms)
     biased_p, biased_r, biased_f = compute_fscore(biased, terms)

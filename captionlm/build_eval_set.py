@@ -55,9 +55,11 @@ def extract_call_year(nlp_path: str, wer_tags_path: str) -> int | None:
         ids = ast.literal_eval(parts[wer_tags_idx])
         if any(tag_id in year_ids for tag_id in ids):
             try:
-                return int(parts[token_idx])
+                year = int(parts[token_idx])
             except ValueError:
                 continue
+            if 1990 <= year <= 2100:
+                return year
     return None
 
 
@@ -222,6 +224,10 @@ def main():
     args = parser.parse_args()
 
     if os.path.exists(args.out):
+        out_abs = os.path.abspath(args.out)
+        dangerous = {os.path.abspath(os.sep), os.path.abspath(os.path.expanduser("~"))}
+        if out_abs in dangerous or len(out_abs.rstrip(os.sep).split(os.sep)) <= 3:
+            raise SystemExit(f"refusing to rmtree suspicious --out path: {out_abs}")
         print(f"Clearing stale output directory {args.out}")
         shutil.rmtree(args.out)
 
@@ -255,7 +261,7 @@ def main():
                     args.out,
                 )
             except Exception as e:
-                print(f"skip {file_id}: {e}")
+                print(f"skip {file_id}: {type(e).__name__}: {e}")
                 continue
             if result is None:
                 continue
