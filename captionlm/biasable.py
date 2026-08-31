@@ -141,9 +141,7 @@ def _candidates(doc):
        count; that keeps out "Begin" and "Below" while still admitting
        "Ollama", which happens to appear exactly once, at the start of
        its only sentence.
-    3. Rare lowercase nouns: quorum, tombstone, sharding. Nominal because
-       rarity alone cannot separate those from "better" and "lets", which
-       are equally rare in the reference corpus and caused substitutions.
+    3. Rare lowercase words: quorum, tombstone, sharding.
     4. Bigrams anchored on a rare word, whose other half is nominal or
        adjectival. The multi-word jargon an ASR mishears -- bloom filter,
        hinted handoff, fencing token -- is lowercase, so harvest 2 cannot
@@ -186,19 +184,7 @@ def _candidates(doc):
         i += 1
 
     for token in tokens:
-        # Nominal only. Rarity alone cannot separate "quorum" from "better":
-        # both are uncommon in pyate's 1.56M-token corpus, but only one is a
-        # term. The adjectives and verbs that slipped through -- better,
-        # lets, real -- caused substitutions of their own on the read-aloud
-        # set. A genuine rare noun that the model already gets right, such
-        # as "traces", still survives this and needs the frequency signal
-        # rather than the tagger.
-        if (
-            token.is_alpha
-            and token.text.islower()
-            and token.pos_ in ("NOUN", "PROPN")
-            and is_rare(token.text)
-        ):
+        if token.is_alpha and token.text.islower() and is_rare(token.text):
             yield token.text
 
     for i, token in enumerate(tokens):

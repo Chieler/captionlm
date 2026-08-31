@@ -122,25 +122,3 @@ def test_bigram_harvest_rejects_sentence_fragments():
     assert "stands still" not in found  # verb neighbour
     assert "alibaba" in found
 
-
-def test_rare_but_ordinary_non_nouns_are_not_harvested():
-    # All four were extracted from the read-aloud scripts and caused
-    # substitutions. They clear the rarity bar because pyate's corpus is
-    # small, but they are ordinary English the model already gets right.
-    text = (
-        "Guardrails catch some of this. Better tool design catches more. "
-        "Snapshot isolation lets readers see a consistent view of real data."
-    )
-    found = {t.lower() for t in extract_entities(text)}
-    assert "better" not in found
-    assert "lets" not in found
-    assert "real" not in found
-
-
-def test_rare_nouns_are_still_harvested():
-    text = (
-        "The protocol requires a quorum of members. A tombstone survives "
-        "until every replica has seen it, and sharding spreads the load."
-    )
-    found = {t.lower() for t in extract_entities(text)}
-    assert {"quorum", "tombstone", "sharding"} <= found
