@@ -73,6 +73,43 @@ def test_trailing_punctuation_is_preserved():
     assert merged[1].id == -1
 
 
+def test_leading_article_is_not_consumed_by_a_shorter_keyword():
+    # Measured failure: 'the hard parts' -> 'hard parts'. The article's
+    # frames overlap the keyword enough to clear intersection_threshold,
+    # and the whole range was replaced by the keyword alone.
+    tokens = [
+        _tok(" the", 0.16, 0.16),
+        _tok(" hard", 0.32, 0.16),
+        _tok(" parts", 0.48, 0.16),
+    ]
+    # hyp covers frames [3, 7] = 0.24s..0.64s, which clips half of " the"
+    hyps = [WSHyp(word="hard parts", score=9.0, start_frame=3, end_frame=7)]
+
+    merged = merge_spans(tokens, hyps, TIME_RATIO)
+
+    assert "".join(t.text for t in merged).split() == ["the", "hard", "parts"]
+
+
+def test_trims_the_lower_overlap_edge_first():
+    # Both edges clear the threshold, so the range holds three words for a
+    # two-word keyword. " a" overlaps the hypothesis 50%, " token" 100%,
+    # so " a" is the one that is not part of the keyword.
+    tokens = [
+        _tok(" a", 0.00, 0.16),
+        _tok(" fencing", 0.16, 0.24),
+        _tok(" token", 0.40, 0.24),
+        _tok(" now", 0.64, 0.16),
+    ]
+    # frames [1, 7] = 0.08s..0.64s, which clips half of " a"
+    hyps = [WSHyp(word="fencing token", score=9.0, start_frame=1, end_frame=7)]
+
+    merged = merge_spans(tokens, hyps, TIME_RATIO)
+
+    assert "".join(t.text for t in merged).split() == [
+        "a", "fencing", "token", "now",
+    ]
+
+
 def test_two_hyps_do_not_clobber_each_other():
     tokens = [
         _tok(" alpha", 0.0, 0.16),

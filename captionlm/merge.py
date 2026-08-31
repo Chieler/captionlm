@@ -40,6 +40,32 @@ def _overlap_pct(word_start: float, word_end: float, hyp_start: float, hyp_end: 
     return 0.0 if word_len <= 0 else 100.0 * intersection / word_len
 
 
+def _trim_to_keyword_width(
+    overlap_idxs: list[int],
+    words: list[list[AlignedToken]],
+    hyp_start: float,
+    hyp_end: float,
+    keyword_words: int,
+) -> list[int]:
+    """Shrink an overlap range until it holds no more words than the
+    keyword does, dropping the lower-overlap edge each time.
+
+    Frame overlap alone does not prove a word is part of the keyword. An
+    article immediately before one shares frames with it and clears the
+    30% threshold, and replacing the whole range destroys it: measured on
+    the read-aloud set, 16 replacements lost a word each, almost all of
+    the shape 'the hard parts' -> 'hard parts'. The keyword's own word
+    count is the honest bound on how much it can account for.
+    """
+    idxs = list(overlap_idxs)
+    while len(idxs) > keyword_words:
+        first, last = words[idxs[0]], words[idxs[-1]]
+        head = _overlap_pct(first[0].start, first[-1].end, hyp_start, hyp_end)
+        tail = _overlap_pct(last[0].start, last[-1].end, hyp_start, hyp_end)
+        idxs.pop(0 if head <= tail else -1)
+    return idxs
+
+
 def merge_spans(
     tokens: list[AlignedToken],
     ws_hyps: list[WSHyp],
@@ -62,6 +88,9 @@ def merge_spans(
             if not used[i]
             and _overlap_pct(w[0].start, w[-1].end, hyp_start, hyp_end) >= intersection_threshold
         ]
+        overlap_idxs = _trim_to_keyword_width(
+            overlap_idxs, words, hyp_start, hyp_end, len(hyp.word.split())
+        )
         if not overlap_idxs:
             continue
 
