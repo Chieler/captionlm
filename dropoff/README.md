@@ -46,7 +46,7 @@ PYTHONPATH=. venv/bin/python scripts/caption_dropoff.py \
 
 # ask a second, independent model and let it correct the spans the two
 # disagree on. The single biggest quality option here: measured at 1.1b,
-# WER 0.0712 -> 0.0560 on read-aloud and 0.1911 -> 0.1830 on real
+# WER 0.0712 -> 0.0560 on read-aloud and 0.1918 -> 0.1837 on real
 # earnings calls, with domain-term recall going UP on both. 1.6 GB
 # download, roughly a quarter again of the runtime.
 --second-opinion

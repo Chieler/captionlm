@@ -232,26 +232,28 @@ that trade. Scored the same way `eval.py` does:
 | biased | 0.0712 | 0.9770 | 0.9231 | 0.9493 | — |
 | Whisper alone | 0.1299 | 0.9828 | 0.7890 | 0.8753 | — |
 | **biased + second opinion** | **0.0560** | 0.9775 | **0.9428** | **0.9598** | — |
-| **Earnings-21** (2 calls, 19821 words) | | | | | |
-| unbiased | 0.1939 | 0.8852 | 0.9692 | 0.9253 | 2/305 |
-| biased | 0.1946 | 0.8852 | 0.9692 | 0.9253 | 2/305 |
-| Whisper alone | 0.1410 | 0.9472 | 0.9667 | 0.9569 | 1/305 |
-| **biased + second opinion** | **0.1878** | 0.8779 | **0.9769** | 0.9248 | 2/305 |
+| **Earnings-21** (5 calls, 40003 words) | | | | | |
+| unbiased | 0.1910 | 0.9093 | 0.9682 | 0.9378 | 6/781 |
+| biased | 0.1918 | 0.9093 | 0.9682 | 0.9378 | 6/781 |
+| Whisper alone | 0.1293 | 0.9635 | 0.9733 | 0.9684 | 2/781 |
+| **biased + second opinion** | **0.1837** | 0.9100 | **0.9759** | **0.9418** | **4/781** |
 
-Recall goes **up** on both sets, and the injection count does not move. That
-is the "never drop a spotted term" rule doing what it was written for: the
-only spans Whisper is allowed to take are ones where biasing had nothing at
-stake, so its general-speech strength is added rather than traded against.
+Recall goes **up** on both sets, and on Earnings-21 the injection count goes
+down, from 6 to 4. That is the "never drop a spotted term" rule doing what it
+was written for: the only spans Whisper is allowed to take are ones where
+biasing had nothing at stake, so its general-speech strength is added rather
+than traded against.
 
 The Earnings-21 arm is a real generalisation test — spontaneous, multi-speaker,
 verbatim references, a generic 193-term list rather than a per-clip extraction,
-and audio nothing here was tuned on. It gains 0.0068. Less than read-aloud's
-0.0152, and in the same direction.
+and audio nothing here was tuned on. It gains 0.0081. Half of read-aloud's
+0.0152, in the same direction, and with the term metrics moving the right way
+on both.
 
 ## The finding that should make somebody uncomfortable
 
 **On Earnings-21, Whisper alone beats biased parakeet by a wide margin:
-0.1410 against 0.1946.** On read-aloud the ranking is reversed and not close,
+0.1293 against 0.1918.** On read-aloud the ranking is reversed and not close,
 0.1299 against 0.0712. Same two models, opposite verdicts, decided entirely
 by the material: parakeet 1.1b is excellent on clean scripted single-speaker
 audio and much weaker on spontaneous conversational speech, which is what a
@@ -263,9 +265,9 @@ with a listed term winning from whichever arm holds it.
 
 | backbone | read-aloud | Earnings-21 |
 |---|---|---|
-| parakeet (shipped) | **85 errors, 0.0560** | **0.1830** |
+| parakeet (shipped) | **85 errors, 0.0560** | **0.1837** |
 | Whisper | 89 errors, 0.0587 | 0.1850 |
-| Whisper alone, no fusion | 197 errors, 0.1299 | **0.1299** |
+| Whisper alone, no fusion | 197 errors, 0.1299 | **0.1293** |
 
 Worse both times, and the Earnings-21 row is the surprising one: on audio
 where Whisper alone wins by 0.05, letting parakeet correct it gives most of
@@ -274,8 +276,8 @@ protecting the wrong backbone costs more than the fusion gains.
 
 So the shipped direction is right and the question is not about fusion at
 all. It is that **on spontaneous speech, plain Whisper beats this project's
-entire biased pipeline — on WER (0.1299 against 0.1911), on term precision
-(0.9620 against 0.9112), and on term recall (0.9763 against 0.9733)**, with
+entire biased pipeline — on WER (0.1293 against 0.1918), on term precision
+(0.9635 against 0.9093), and on term recall (0.9733 against 0.9682)**, with
 no term list and nothing to extract. Biasing earns its keep on the read-aloud
 set, where recall is 0.7890 unbiased against 0.9231 biased, and that set is
 clean scripted single-speaker audio read from the reference itself.
@@ -288,5 +290,6 @@ points away from tuning the spotter.
 
 Unchanged from the budget: the read-aloud set is one speaker, clean audio,
 scripted prose, and a document that IS the transcript. The Earnings-21 arm
-above is two calls of nine, chosen only by which had finished transcribing;
-treat 0.0068 as a direction, not a decimal.
+above is five calls of nine, chosen only by which had finished transcribing,
+and scored against a term list built for the whole corpus rather than for each
+call; treat 0.0081 as a direction, not a decimal.
