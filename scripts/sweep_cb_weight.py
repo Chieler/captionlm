@@ -128,6 +128,7 @@ def main():
                 **b,
                 "wer_delta": b["wer"] - base_stats["wer"],
                 "fscore_delta": b["fscore"] - base_stats["fscore"],
+                **stats["yield"],
             }
             rows.append(row)
             out = os.path.join(args.out_dir, f"sweep-{name}-{weight}.json")
@@ -141,6 +142,7 @@ def main():
                 f"{name:<12} cb={weight:<4} WER={b['wer']:.4f} ({row['wer_delta']:+.4f})  "
                 f"P={b['precision']:.4f} R={b['recall']:.4f} F={b['fscore']:.4f} "
                 f"({row['fscore_delta']:+.4f})  inject={_rate(b)}  "
+                f"net={stats['yield']['net_term_gain']:+d}  "
                 f"[{time.time() - t0:.0f}s]",
                 flush=True,
             )

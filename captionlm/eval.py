@@ -12,7 +12,9 @@ Three term metrics, because one number cannot carry all three questions:
 F-score says how well listed terms that were spoken came out; the
 injection rate says how often a listed term that was NOT spoken got put
 in anyway, which F-score has no denominator for; per_term says which
-terms are responsible for either.
+terms are responsible for either. The headline pair is recall against
+injection rate -- precision cannot improve under biasing and is a
+guardrail, not a score -- and "yield" reduces that pair to one number.
 """
 import argparse
 import glob
@@ -173,6 +175,32 @@ def per_term_stats(all_terms: list[str], baseline: list[dict], biased: list[dict
     return rows
 
 
+def biasing_yield(per_term: list[dict], baseline: dict, biased: dict) -> dict:
+    """Recall against injection, in the same unit: term occurrences.
+
+    Precision is the wrong scoreboard for biasing and cannot improve.
+    The unbiased baseline's false accepts are already near zero -- it
+    fails by not emitting the term at all, not by emitting the wrong one
+    -- and biasing works by emitting listed terms MORE often, so every
+    extra emission is either a true positive or a false accept and
+    precision only has a downward path. Measured at 1.1b: 67 term misses
+    fixed, 12 false accepts created, precision 0.9853 -> 0.9630.
+
+    What the trade actually is: occurrences recovered, minus occurrences
+    hallucinated from the list. Both counts, both attributable, and the
+    injections are netted against the unbiased arm because a term can
+    land in the transcript by chance -- on Earnings-21, 12 of the 17
+    injections at cb_weight 0.5 also happen with biasing switched off.
+    """
+    recovered = sum(r["biased_correct"] - r["baseline_correct"] for r in per_term)
+    injected = len(biased["injected"]) - len(baseline["injected"])
+    return {
+        "terms_recovered": recovered,
+        "injections_added": injected,
+        "net_term_gain": recovered - injected,
+    }
+
+
 def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms: list[str]) -> dict:
     references = [c["text"] for c in clips]
     baseline_preds = [s["pred_text"] for s in baseline]
@@ -194,23 +222,28 @@ def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms
         for clip, base_pred, bias_pred in zip(clips, baseline_preds, biased_preds)
     ]
 
+    baseline_injections = unspoken_injections(clips, baseline)
+    biased_injections = unspoken_injections(clips, biased)
+    per_term = per_term_stats(all_terms, baseline, biased)
+
     return {
         "baseline": {
             "wer": _wer(references, baseline_preds),
             "precision": baseline_p,
             "recall": baseline_r,
             "fscore": baseline_f,
-            **unspoken_injections(clips, baseline),
+            **baseline_injections,
         },
         "biased": {
             "wer": _wer(references, biased_preds),
             "precision": biased_p,
             "recall": biased_r,
             "fscore": biased_f,
-            **unspoken_injections(clips, biased),
+            **biased_injections,
         },
+        "yield": biasing_yield(per_term, baseline_injections, biased_injections),
         "per_clip": per_clip,
-        "per_term": per_term_stats(all_terms, baseline, biased),
+        "per_term": per_term,
     }
 
 
@@ -255,6 +288,12 @@ def main():
             f"{label}: WER={s['wer']:.3f} P={s['precision']:.3f} R={s['recall']:.3f} "
             f"F={s['fscore']:.3f} inject={rate} ({len(s['injected'])}/{s['unspoken_terms']} unspoken)"
         )
+
+    y = stats["yield"]
+    print(
+        f"yield: recovered {y['terms_recovered']:+d} term occurrences, "
+        f"injected {y['injections_added']:+d} -> net {y['net_term_gain']:+d}"
+    )
 
     worst = [r for r in stats["per_term"] if r["biased_false_accepts"]][:5]
     if worst:

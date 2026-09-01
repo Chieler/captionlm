@@ -154,3 +154,20 @@ def test_per_term_stats_puts_the_terms_doing_damage_first():
     assert rows[0]["biased_false_accepts"] == 1
     alpha = next(r for r in rows if r["term"] == "alpha")
     assert (alpha["baseline_correct"], alpha["biased_correct"]) == (1, 0)
+
+
+def test_yield_nets_recovered_terms_against_hallucinated_ones():
+    # Recall against injection in one unit. Precision cannot improve under
+    # biasing, so this is the pair that says whether biasing paid.
+    clips = [{"wav": "/tmp/a.wav", "text": "we deployed alpha today", "terms": ["alpha", "beta"]}]
+    baseline = [{"text": "we deployed alpha today", "pred_text": "we deployed alfa today"}]
+    biased = [{"text": "we deployed alpha today", "pred_text": "we deployed alpha beta today"}]
+
+    stats = score(clips, baseline, biased, ["alpha", "beta"])
+
+    # "alpha" recovered; "beta" was listed, never spoken, and put in anyway.
+    assert stats["yield"] == {
+        "terms_recovered": 1,
+        "injections_added": 1,
+        "net_term_gain": 0,
+    }
