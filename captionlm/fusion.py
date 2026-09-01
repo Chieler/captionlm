@@ -167,7 +167,8 @@ def fuse_text(primary: str, second: str, terms: list[str]) -> str:
     while i < len(words):
         if i in replacements:
             end, new = replacements[i]
-            out.extend(_restyle(new, words[end - 1], _starts_sentence(words, i)))
+            previous = words[i - 1] if i else None
+            out.extend(_restyle(new, words[end - 1], _opens_sentence(previous)))
             i = end
         else:
             out.append(words[i])
@@ -175,8 +176,10 @@ def fuse_text(primary: str, second: str, terms: list[str]) -> str:
     return " ".join(out)
 
 
-def _starts_sentence(words: list[str], i: int) -> bool:
-    return i == 0 or words[i - 1].rstrip("\"'").endswith((".", "!", "?"))
+def _opens_sentence(previous: str | None) -> bool:
+    """Whether the span being replaced started a sentence, given the word
+    before it (None when it starts the transcript)."""
+    return previous is None or previous.strip().rstrip("\"'").endswith((".", "!", "?"))
 
 
 def _restyle(new: list[str], last: str, at_sentence_start: bool) -> list[str]:
@@ -217,13 +220,9 @@ def fuse_tokens(
             end, new = replacements[i]
             if new:
                 first, last = words[i], words[end - 1]
-                previous = "".join(t.text for t in words[i - 1]).strip() if i else ""
+                previous = "".join(t.text for t in words[i - 1]) if i else None
                 text = " ".join(
-                    _restyle(
-                        new,
-                        "".join(t.text for t in last),
-                        not i or previous.rstrip("\"'").endswith((".", "!", "?")),
-                    )
+                    _restyle(new, "".join(t.text for t in last), _opens_sentence(previous))
                 )
                 lead = " " if first[0].text.startswith(" ") else ""
                 out.append(
