@@ -18,12 +18,15 @@ import argparse
 import glob
 import os
 
+from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
+
 from captionlm.biasable import extract_bias_terms
 from captionlm.build_eval_set import convert_to_wav
 from captionlm.cli import result_to_srt
 from captionlm.config import MODEL_ID
 from captionlm.doc_import import extract_text
 from captionlm.biased_model import load_biased_model
+from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion
 from captionlm.terms import build_context_graph, load_tokenizer
 
 AUDIO_EXTS = {".mp3", ".mp4", ".m4a", ".wav", ".mov", ".aac", ".flac", ".ogg", ".webm", ".mkv"}
@@ -52,6 +55,13 @@ def main():
     parser.add_argument("--cb-weight", type=float, default=None,
                         help="Biasing strength. Default is SpotterConfig's 3.0, "
                              "which measured best on the read-aloud eval set.")
+    parser.add_argument("--second-opinion", nargs="?", const=WHISPER_MODEL_ID, default=None,
+                        metavar="MODEL_ID",
+                        help="Transcribe again with an independent model and let it "
+                             "correct the spans it disagrees on. Measured at 1.1b: "
+                             "read-aloud WER 0.0712 -> 0.0560, Earnings-21 0.1911 -> "
+                             "0.1830, with term recall up on both. Costs a 1.6 GB "
+                             "download and about a quarter again of the runtime.")
     args = parser.parse_args()
 
     pairs = find_pairs(args.directory)
@@ -74,6 +84,7 @@ def main():
         base = os.path.splitext(audio)[0]
         print(f"\n=== {os.path.basename(audio)} ===")
 
+        terms: list[str] = []
         if doc:
             terms = extract_bias_terms(extract_text(doc), mode=args.mode, top_n=args.top_n)
             with open(f"{base}.terms.txt", "w", encoding="utf-8") as f:
@@ -91,6 +102,15 @@ def main():
             convert_to_wav(audio, wav)
 
         result = model.transcribe(wav, chunk_duration=120.0)
+
+        if args.second_opinion:
+            print("  asking for a second opinion ...", flush=True)
+            result = sentences_to_result(
+                tokens_to_sentences(
+                    fuse_tokens(result.tokens, second_opinion(wav, args.second_opinion), terms)
+                )
+            )
+
         out = f"{base}.srt"
         with open(out, "w", encoding="utf-8") as f:
             f.write(result_to_srt(result))

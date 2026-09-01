@@ -44,6 +44,13 @@ with, and diff the two `.srt` files.
 PYTHONPATH=. venv/bin/python scripts/caption_dropoff.py \
   --model mlx-community/parakeet-tdt_ctc-1.1b
 
+# ask a second, independent model and let it correct the spans the two
+# disagree on. The single biggest quality option here: measured at 1.1b,
+# WER 0.0712 -> 0.0560 on read-aloud and 0.1911 -> 0.1830 on real
+# earnings calls, with domain-term recall going UP on both. 1.6 GB
+# download, roughly a quarter again of the runtime.
+--second-opinion
+
 # how the terms are chosen
 --mode combined      # names + rare nouns + statistical phrases (default)
 --mode ner           # names and rare nouns only
