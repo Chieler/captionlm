@@ -39,19 +39,41 @@ Splitting those 39 spans by what actually went wrong:
 
 | # | change | reaches | words | ΔWER | confidence |
 |---|---|---|---|---|---|
-| 1 | disfluency suppression | reader restarts | 14 | −0.0092 | high |
+| 1 | disfluency suppression | reader restarts | ~~14~~ **11** | ~~−0.0092~~ **−0.0073** | ~~high~~ **done** |
 | 2 | document-conditioned rescoring | inflection, homophones, function, ordinary content | ~30 of 61 | −0.020 | medium |
 | 3 | per-term `cb_weight` | garbled listed terms | 3–4 of 7 | −0.002 | medium-low |
 | 4 | remaining merge collateral | some function words | 2–4 | −0.002 | low |
 
-**1 + 2 + 3 + 4 → 0.047.** Reaches the target.
+**1 + 2 + 3 + 4 → 0.049.** Reaches the target.
+**Item 1 is now measured and shipped: 0.0784 → 0.0712.**
 **Everything except 2 → 0.065.** Does not.
 
 Rescoring is load-bearing. Every other change on this list, combined, is
 worth about 0.013, and there is no fifth item hiding: the buckets above
 are exhaustive over the residual.
 
-### 1. Disfluency suppression — 0.0092, cheapest thing on the list
+### 1. Disfluency suppression — MEASURED: −0.0073, shipped
+
+**Result: WER 0.0784 → 0.0712, 119 → 108 errors.** All eleven come out
+of insertions (35 → 24); substitutions and deletions are untouched, so
+the pass is strictly subtractive. Zero false positives over the
+1517-word read-aloud reference set. See `captionlm/disfluency.py`.
+
+The budget below predicted 14 words. The shippable detector gets 11, and
+the gap is instructive: the estimate was made with a detector that asks
+which inserted words also appear in the *reference* nearby, and there is
+no reference at inference time. What ships instead keys on the property
+that makes a restart a restart — an n-gram immediately followed by
+itself — which finds the repeats but not the three words of
+`'' → 'always part is'`, where the reader restarted with different words.
+
+One caveat that did not exist before measuring: this is correct for a
+caption and wrong for a verbatim transcript. Earnings-21 references
+contain the speakers' real disfluencies, and the same pass removes 391
+of their 153,088 reference words. It is applied in `result_to_srt`, the
+product path, and not in eval scoring against verbatim references.
+
+#### Original estimate
 
 Ten spans, all pure insertions whose words repeat reference text within
 a twelve-word window: `'' → 'the failure modes'`, `'' → 'always part is'`,
@@ -67,9 +89,17 @@ noise that inflates every WER number this project has recorded.
 
 The failures it reaches are exactly the ones no term list can:
 
-- `groq` → `grok`. Both terms are in the list. They are acoustically
-  identical. No acoustic method distinguishes them; only the document
-  says which one this speaker meant.
+- `groq` → `grok`. Now measured end to end in
+  `2026-09-01-what-the-trie-can-and-cannot-encode.md`: both are spotted
+  on identical frames, `grok` wins both by 2.898 and 4.084, and the CTC
+  head's own argmax is `ck` in both places. No acoustic or trie-side
+  lever reaches it, and — correcting this document's earlier claim — the
+  *document* does not disambiguate them either, because it contains both
+  ("the name is a constant source of confusion with Grok"). What
+  separates them is the surrounding sentence: "___ built custom silicon
+  for low latency decoding" against "confusion with ___". That is
+  available only once a transcript exists, which is what makes this
+  rescoring's job and nothing else's.
 - `protocol` → `protocols`. Word-final /s/ under a following consonant.
   Adding plural variants to the trie was tried and reverted (it made
   things worse); the number is a language-model decision, not an
@@ -84,6 +114,14 @@ not adaptation.
 Open questions the spike must answer before anything ships: does it fix
 `Grok` → `Groq` without introducing new errors, and at what latency.
 It could plausibly return worse text than it was given.
+
+The spike now has an exact target to hit. Region 0 of `ai_agents.wav`,
+frames 1202–1205, currently reads "Grok built custom silicon" and should
+read "Groq built custom silicon"; region 1, frames 1347–1351, reads
+"Grok" and is already correct. A rescoring pass has to flip the first
+without touching the second — which is precisely the discrimination a
+single global term weight cannot make, and a sentence-conditioned pass
+can.
 
 ### 3. Per-term `cb_weight` — small, cheap, now safely measurable
 
