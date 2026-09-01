@@ -97,6 +97,12 @@ across a segment boundary. Deletions are kept, though: where Whisper heard
 *fewer* words, both models heard the stretch and only one transcribed the
 reader's false start. Worth 4 error words.
 
+Relaxing this to allow single function words — parakeet's known deletion
+failure mode, and 19 words of the budget — was tried and is worse: 87 errors
+against 85. Six of the nine insertions Whisper offers are `the`, `it` or
+`that`, and they land in the wrong places often enough to lose more than they
+win. There is no narrower version of this rule that pays.
+
 ### What it actually fixes
 
 The spans it wins are the ones no term list could reach:
@@ -117,6 +123,21 @@ arbitrate. The budget was right that only the surrounding sentence separates
 them, and wrong that this made it reachable — a second acoustic opinion is
 not a semantic one, and the four language-model passes that could have been
 semantic all cost more words than they saved.
+
+### It is not tuned to one operating point
+
+The same Whisper transcript, fused against the biased hypothesis at each
+`cb_weight` the sweep stored:
+
+| cb_weight | biased | fused |
+|---|---|---|
+| 2.0 | 116 errors, 0.0765 | 93 errors, 0.0613 |
+| 3.0 | 108 errors, 0.0712 | **85 errors, 0.0560** |
+| 4.0 | 111 errors, 0.0732 | 86 errors, 0.0567 |
+
+Twenty-three, twenty-three and twenty-five error words. The gain does not
+come from having landed on a lucky weight, and 3.0 is still the floor of the
+curve after fusion as it was before.
 
 ## An LLM arbiter, measured and declined
 
@@ -190,9 +211,56 @@ PYTHONPATH=. venv/bin/python -m captionlm.cli talk.wav \
 `captionlm/eval.py` takes the same flag, so the number above is reproducible
 through the scored path rather than only over stored predictions.
 
+## It does not cost term recall, and it holds on real audio
+
+The headline pair for this project is recall against injection, not WER, and
+a WER win bought by dropping domain terms would be a bad trade. It is not
+that trade. Scored the same way `eval.py` does:
+
+| | WER | precision | recall | F | injected |
+|---|---|---|---|---|---|
+| **read-aloud** (1517 words) | | | | | |
+| unbiased | 0.0962 | 0.9901 | 0.7909 | 0.8794 | — |
+| biased | 0.0712 | 0.9770 | 0.9231 | 0.9493 | — |
+| Whisper alone | 0.1299 | 0.9828 | 0.7890 | 0.8753 | — |
+| **biased + second opinion** | **0.0560** | 0.9775 | **0.9428** | **0.9598** | — |
+| **Earnings-21** (2 calls, 19821 words) | | | | | |
+| unbiased | 0.1939 | 0.8852 | 0.9692 | 0.9253 | 2/305 |
+| biased | 0.1946 | 0.8852 | 0.9692 | 0.9253 | 2/305 |
+| Whisper alone | 0.1410 | 0.9472 | 0.9667 | 0.9569 | 1/305 |
+| **biased + second opinion** | **0.1878** | 0.8779 | **0.9769** | 0.9248 | 2/305 |
+
+Recall goes **up** on both sets, and the injection count does not move. That
+is the "never drop a spotted term" rule doing what it was written for: the
+only spans Whisper is allowed to take are ones where biasing had nothing at
+stake, so its general-speech strength is added rather than traded against.
+
+The Earnings-21 arm is a real generalisation test — spontaneous, multi-speaker,
+verbatim references, a generic 193-term list rather than a per-clip extraction,
+and audio nothing here was tuned on. It gains 0.0068. Less than read-aloud's
+0.0152, and in the same direction.
+
+## The finding that should make somebody uncomfortable
+
+**On Earnings-21, Whisper alone beats biased parakeet by a wide margin:
+0.1410 against 0.1946.** On read-aloud the ranking is reversed and not close,
+0.1299 against 0.0712. Same two models, opposite verdicts, decided entirely
+by the material: parakeet 1.1b is excellent on clean scripted single-speaker
+audio and much weaker on spontaneous conversational speech, which is what a
+real user records.
+
+This fusion keeps parakeet as the backbone on both, because the backbone
+cannot be chosen at inference time — nothing tells you in advance which kind
+of audio you have — and because parakeet is the arm CTC-WS biasing attaches
+to. That is a defensible default and it gains on both sets. It is not
+obviously the best one. The open question this raises, and does not answer,
+is whether the whole architecture should be Whisper as backbone with the
+spotter's terms merged into it, which would trade the 0.0712 on clean audio
+for something much better on the audio users actually have.
+
 ## The caveat that still governs all of it
 
-Unchanged from the budget: this is one speaker, clean audio, scripted prose,
-and a document that IS the transcript. The rule that protects spotted terms
-only helps where biasing was helping in the first place. Earnings-21 sits at
-0.19 and nothing here is a claim about it.
+Unchanged from the budget: the read-aloud set is one speaker, clean audio,
+scripted prose, and a document that IS the transcript. The Earnings-21 arm
+above is two calls of nine, chosen only by which had finished transcribing;
+treat 0.0068 as a direction, not a decimal.
