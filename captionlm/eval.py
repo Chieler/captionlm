@@ -7,18 +7,25 @@ Each clip is biased with its own <clip>.terms.txt when present, matching
 what cli.py does: one document biases its own audio. The combined term
 list passed on the command line is used for F-score scoring, so the
 metric's vocabulary stays constant across clips.
+
+Three term metrics, because one number cannot carry all three questions:
+F-score says how well listed terms that were spoken came out; the
+injection rate says how often a listed term that was NOT spoken got put
+in anyway, which F-score has no denominator for; per_term says which
+terms are responsible for either.
 """
 import argparse
 import glob
 import json
 import os
+import re
 
 import jiwer
 
 from captionlm.biased_model import load_biased_model
 from captionlm.config import MODEL_ID
 from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
-from captionlm.vendor.fscore import compute_fscore
+from captionlm.vendor.fscore import compute_fscore, keyword_stats
 
 
 def load_clips(clip_dir: str, fallback_terms: list[str] | None = None) -> list[dict]:
@@ -95,6 +102,77 @@ def _wer(references: list[str], hypotheses: list[str]) -> float:
     )
 
 
+def _term_words(text: str) -> str:
+    """Text reduced to space-delimited words, padded so that a substring
+    search for " term " is a whole-word search."""
+    return " " + " ".join(re.findall(r"[a-z0-9]+", text.lower())) + " "
+
+
+def unspoken_injections(clips: list[dict], samples: list[dict]) -> dict:
+    """How often biasing puts a listed term into the transcript that the
+    speaker never said.
+
+    The F-score cannot measure this. Its precision is tp/(tp+fp), and fp
+    only counts terms that fired -- there is no denominator for the terms
+    that were listed, never spoken, and correctly stayed out. That
+    population is where biasing carries pure risk, and on real documents
+    it is most of the list: measured per clip, 10-38% of an extracted term
+    list is actually spoken on Earnings-21, against 100% on the read-aloud
+    set, where the document IS the transcript and nothing can be falsely
+    accepted at all.
+
+    Counted per (clip, term) pair, so the denominator matches the number
+    of independent chances biasing had to inject something. Run it on the
+    unbiased predictions too: a term can land in the hypothesis by chance,
+    and that rate is the floor this one has to beat.
+    """
+    unspoken = 0
+    injected = []
+    for clip, sample in zip(clips, samples):
+        reference = _term_words(clip["text"])
+        hypothesis = _term_words(sample["pred_text"])
+        for term in clip["terms"]:
+            key = _term_words(term)
+            if key.strip() == "" or key in reference:
+                continue
+            unspoken += 1
+            if key in hypothesis:
+                injected.append(term)
+    return {
+        "unspoken_terms": unspoken,
+        "injected": injected,
+        "injection_rate": len(injected) / unspoken if unspoken else None,
+    }
+
+
+def per_term_stats(all_terms: list[str], baseline: list[dict], biased: list[dict]) -> list[dict]:
+    """One row per term that either occurred or fired, worst first.
+
+    The aggregate F-score cannot say WHICH terms misbehave, and the answer
+    changes the fix: sixteen false accepts spread over sixteen terms is a
+    threshold problem, sixteen from one term is a bad list entry.
+    """
+    base = keyword_stats(baseline, all_terms)
+    bias = keyword_stats(biased, all_terms)
+    rows = []
+    for term, (tp, gt, fp) in bias.items():
+        b_tp, b_gt, b_fp = base[term]
+        if not (gt or fp or b_gt or b_fp):
+            continue
+        rows.append(
+            {
+                "term": term,
+                "spoken": gt,
+                "baseline_correct": b_tp,
+                "biased_correct": tp,
+                "baseline_false_accepts": b_fp,
+                "biased_false_accepts": fp,
+            }
+        )
+    rows.sort(key=lambda r: (-(r["biased_false_accepts"]), -(r["spoken"] - r["biased_correct"]), r["term"]))
+    return rows
+
+
 def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms: list[str]) -> dict:
     references = [c["text"] for c in clips]
     baseline_preds = [s["pred_text"] for s in baseline]
@@ -122,14 +200,17 @@ def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms
             "precision": baseline_p,
             "recall": baseline_r,
             "fscore": baseline_f,
+            **unspoken_injections(clips, baseline),
         },
         "biased": {
             "wer": _wer(references, biased_preds),
             "precision": biased_p,
             "recall": biased_r,
             "fscore": biased_f,
+            **unspoken_injections(clips, biased),
         },
         "per_clip": per_clip,
+        "per_term": per_term_stats(all_terms, baseline, biased),
     }
 
 
@@ -169,7 +250,17 @@ def main():
     stats = run_eval(args.clip_dir, args.terms, args.model, args.cb_weight)
     for label in ("baseline", "biased"):
         s = stats[label]
-        print(f"{label}: WER={s['wer']:.3f} P={s['precision']:.3f} R={s['recall']:.3f} F={s['fscore']:.3f}")
+        rate = "n/a" if s["injection_rate"] is None else f"{s['injection_rate']:.4f}"
+        print(
+            f"{label}: WER={s['wer']:.3f} P={s['precision']:.3f} R={s['recall']:.3f} "
+            f"F={s['fscore']:.3f} inject={rate} ({len(s['injected'])}/{s['unspoken_terms']} unspoken)"
+        )
+
+    worst = [r for r in stats["per_term"] if r["biased_false_accepts"]][:5]
+    if worst:
+        print("worst false accepts: " + ", ".join(
+            f"{r['term']}({r['biased_false_accepts']})" for r in worst
+        ))
 
     if args.out_json:
         with open(args.out_json, "w", encoding="utf-8") as f:

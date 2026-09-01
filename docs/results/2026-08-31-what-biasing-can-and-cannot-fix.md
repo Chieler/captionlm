@@ -295,3 +295,78 @@ durable output of Task 3 and Task 4: both hypotheses (plurals help
 recall; POS-filtering removes only noise) were specific, testable, and
 false, which is worth knowing for the next plan even though neither
 line of code shipped.
+
+## Term precision had no denominator for the terms that matter
+
+The F-score answers one question — of the listed terms that were spoken,
+how many came out right — and was being read as if it answered a second:
+how often does biasing put a listed term into the transcript that nobody
+said. It cannot. Precision is `tp / (tp + fp)`, and `fp` only counts
+terms that fired; a listed term that was never spoken and correctly
+stayed out contributes to neither column. That population is where
+biasing carries pure downside, and on real documents it is most of the
+list:
+
+| clip set | listed terms actually spoken |
+|---|---|
+| `read_aloud/ai_agents` | 206/206 (100%) |
+| `read_aloud/distributed_systems` | 242/242 (100%) |
+| `eval_data/clips/4320211` | 19/50 (38%) |
+| `eval_data/clips/4341191` | 19/50 (38%) |
+| `eval_data/clips/4382825` | 5/50 (10%) |
+| `eval_data/clips/4383161` | 17/50 (34%) |
+
+The read-aloud set has **zero** unspoken terms, so no precision number
+taken from it can be evidence about false accepts — there is nothing
+there to falsely accept. This is the same document-is-the-transcript
+artifact that inflates its recall, showing up on the other axis.
+
+`unspoken_injections` supplies the missing denominator: every
+(clip, term) pair where the term was listed and not spoken, and how many
+of those landed in the hypothesis anyway. Rescoring the stored
+Earnings-21 oracle predictions (11 clips, 1013-term list applied to every
+clip, so 10,701 unspoken pairs) — no new transcription, the predictions
+were already on disk:
+
+| condition | injections | rate | vs. unbiased floor |
+|---|---|---|---|
+| unbiased baseline | 12 / 10,701 | 0.0011 | — |
+| oracle, cb_weight 0.5 | 17 / 10,701 | 0.0016 | 1.4× |
+| oracle, cb_weight 1.0 | 54 / 10,701 | 0.0050 | 4.5× |
+
+Monotone in cb_weight, as a false-accept measure should be, and the
+unbiased floor is 12 — most injections at cb=0.5 are not biasing's fault
+at all, which is exactly why the floor has to be measured alongside.
+
+`per_term_stats` then says who is responsible, which the aggregate never
+could. At cb_weight 1.0 the false accepts are not spread evenly over
+1013 terms: `pay` (21), `los` (20), `tim` (14), `bi` (12), `gc` (11) —
+five short junk entries account for the large majority. That is a bad
+list-entry problem, not a threshold problem, and the two have opposite
+fixes.
+
+### A scoring bug the confusable case depends on
+
+NeMo's unigram false-accept branch reads `elif word_hyp in keywords_set`,
+so when the reference word is itself a listed term the false accept is
+never counted: one listed term substituted for another records the miss
+and nothing else. That is precisely this project's central case — Groq
+and Grok are both in the list and acoustically identical. The n-gram
+branch in the same function already counts it
+(`phrase_hyp in keywords_set and phrase_hyp != phrase_ref`), so the
+unigram path was inconsistent with its own function; corrected to match.
+
+Effect on already-recorded numbers, rescored from stored predictions
+(precision only; recall and WER are untouched):
+
+| run | old P | corrected P |
+|---|---|---|
+| read-aloud 1.1b, unbiased | 0.9901 | 0.9853 |
+| read-aloud 1.1b, cb=3.0 | 0.9669 | 0.9630 |
+| Earnings-21, unbiased | 0.9412 | 0.9375 |
+| Earnings-21 oracle, cb=0.5 | 0.9272 | 0.9237 |
+| Earnings-21 oracle, cb=1.0 | 0.8090 | 0.8063 |
+
+Every precision figure earlier in this document was 0.003–0.005 too
+generous. No conclusion in it turns on that margin, but the numbers are
+superseded by the right-hand column.

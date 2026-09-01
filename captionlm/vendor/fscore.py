@@ -21,21 +21,31 @@ nemo/collections/asr/parts/context_biasing/context_biasing_utils.py
 Changes from the original: takes an in-memory list of {"text", "pred_text"}
 dicts instead of a NeMo manifest file path (drops the
 nemo.collections.asr.parts.utils.manifest_utils dependency), uses
-kaldialign directly instead of nemo.utils.logging for stats, and drops the
+kaldialign directly instead of nemo.utils.logging for stats, drops the
 per-sample-keyword-field mode (this project always scores against one
-global term list). The core alignment-based scoring algorithm is
-unchanged.
+global term list), and splits the per-keyword tally out into
+keyword_stats, which the original computed and discarded. The core
+alignment-based scoring algorithm is unchanged except for the unigram
+false-accept branch, noted at its site.
 """
 import re
 
 from kaldialign import align
 
 
-def compute_fscore(
+def keyword_stats(
     samples: list[dict],
     key_words_list: list[str],
     eps: str = "<eps>",
-) -> tuple[float, float, float]:
+) -> dict[str, list[int]]:
+    """Per-keyword [true positives, ground-truth occurrences, false accepts].
+
+    compute_fscore sums these three columns and returns the ratios. The
+    per-term rows are what tells you WHICH terms misbehave, which the
+    aggregate cannot: sixteen false accepts spread over sixteen distinct
+    terms and sixteen from one runaway term give the same precision and
+    need opposite fixes.
+    """
     assert samples, "samples is empty"
     assert key_words_list, "key_words_list is empty"
 
@@ -54,7 +64,15 @@ def compute_fscore(
                 key_words_stat[word_ref][1] += 1
                 if word_ref == word_hyp:
                     key_words_stat[word_ref][0] += 1
-            elif word_hyp in keywords_set:
+            # Not elif: NeMo's original skips the false accept whenever the
+            # reference word is itself a listed term, so one listed term
+            # substituted for another records the miss and no false accept
+            # at all. That is the confusable case this project exists to
+            # measure -- Groq and Grok are both in the list and acoustically
+            # identical -- and the n-gram branch below already counts it
+            # (phrase_hyp in keywords_set and phrase_hyp != phrase_ref), so
+            # the unigram path was inconsistent with its own function.
+            if word_hyp in keywords_set and word_hyp != word_ref:
                 key_words_stat[word_hyp][2] += 1
 
         for ngram_order in range(2, max_ngram_order + 1):
@@ -95,6 +113,16 @@ def compute_fscore(
                     phrase_ref = " ".join(ali[wh[1]][0] for wh in item_hyp)
                     if phrase_hyp in keywords_set and phrase_hyp != phrase_ref:
                         key_words_stat[phrase_hyp][2] += 1
+
+    return key_words_stat
+
+
+def compute_fscore(
+    samples: list[dict],
+    key_words_list: list[str],
+    eps: str = "<eps>",
+) -> tuple[float, float, float]:
+    key_words_stat = keyword_stats(samples, key_words_list, eps)
 
     tp = sum(v[0] for v in key_words_stat.values())
     gt = sum(v[1] for v in key_words_stat.values())

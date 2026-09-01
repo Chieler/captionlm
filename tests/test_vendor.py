@@ -1,6 +1,6 @@
 from captionlm.vendor.context_graph_ctc import ContextGraphCTC
 from captionlm.vendor.ctc_word_spotter import Token, beam_pruning, state_pruning
-from captionlm.vendor.fscore import compute_fscore
+from captionlm.vendor.fscore import compute_fscore, keyword_stats
 
 
 def test_context_graph_builds_simple_word():
@@ -39,3 +39,12 @@ def test_compute_fscore_missed_term():
     samples = [{"text": "deploy the kubernetes cluster", "pred_text": "deploy the koobernetti cluster"}]
     precision, recall, fscore = compute_fscore(samples, ["kubernetes"])
     assert recall < 0.01
+
+
+def test_keyword_stats_attributes_errors_to_the_term_responsible():
+    # The aggregate F-score cannot distinguish one runaway term from many
+    # terms each firing once; these rows are what makes that visible.
+    samples = [{"text": "deploy the kubernetes cluster", "pred_text": "deploy the istio cluster"}]
+    stats = keyword_stats(samples, ["kubernetes", "istio"])
+    assert stats["kubernetes"] == [0, 1, 0]  # spoken once, never recognized
+    assert stats["istio"] == [0, 0, 1]  # never spoken, falsely accepted

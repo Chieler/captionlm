@@ -45,6 +45,15 @@ from captionlm.terms import load_term_list, load_tokenizer
 PER_CLIP = "per-clip"
 
 
+def _rate(stats: dict) -> str:
+    """Injection rate: listed-but-unspoken terms that got transcribed anyway.
+    Rises when biasing starts hallucinating the term list; "n/a" means the
+    clip set has no unspoken terms, so this condition cannot measure it."""
+    if stats["injection_rate"] is None:
+        return "n/a"
+    return f"{stats['injection_rate']:.4f} ({len(stats['injected'])}/{stats['unspoken_terms']})"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("clip_dir", help="Directory of <clip>.wav/<clip>.txt pairs")
@@ -98,7 +107,8 @@ def main():
     base_stats = score(clips, baseline, baseline, score_terms)["baseline"]
     print(
         f"\nbaseline: WER={base_stats['wer']:.4f} P={base_stats['precision']:.4f} "
-        f"R={base_stats['recall']:.4f} F={base_stats['fscore']:.4f}\n"
+        f"R={base_stats['recall']:.4f} F={base_stats['fscore']:.4f} "
+        f"inject={_rate(base_stats)}\n"
     )
 
     rows = []
@@ -130,7 +140,8 @@ def main():
             print(
                 f"{name:<12} cb={weight:<4} WER={b['wer']:.4f} ({row['wer_delta']:+.4f})  "
                 f"P={b['precision']:.4f} R={b['recall']:.4f} F={b['fscore']:.4f} "
-                f"({row['fscore_delta']:+.4f})  [{time.time() - t0:.0f}s]",
+                f"({row['fscore_delta']:+.4f})  inject={_rate(b)}  "
+                f"[{time.time() - t0:.0f}s]",
                 flush=True,
             )
 

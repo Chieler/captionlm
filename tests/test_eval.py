@@ -1,6 +1,13 @@
 import json
 
-from captionlm.eval import _wer, load_clips, score, transcribe_biased
+from captionlm.eval import (
+    _wer,
+    load_clips,
+    per_term_stats,
+    score,
+    transcribe_biased,
+    unspoken_injections,
+)
 
 
 def test_load_clips_pairs_wav_and_txt(tmp_path):
@@ -102,3 +109,48 @@ def test_score_ignores_case_and_punctuation():
     stats = score(clips, samples, samples, ["net sales"])
 
     assert stats["baseline"]["wer"] == 0.0
+
+
+def test_injection_rate_counts_only_terms_that_were_never_spoken():
+    # The population F-score has no denominator for: listed, not said, and
+    # therefore pure downside if biasing puts it in anyway.
+    clips = [{"wav": "/tmp/a.wav", "text": "net sales grew", "terms": ["net sales", "EBITDA"]}]
+    clean = [{"text": "net sales grew", "pred_text": "net sales grew"}]
+    hallucinated = [{"text": "net sales grew", "pred_text": "net sales EBITDA grew"}]
+
+    assert unspoken_injections(clips, clean) == {
+        "unspoken_terms": 1,
+        "injected": [],
+        "injection_rate": 0.0,
+    }
+    assert unspoken_injections(clips, hallucinated)["injection_rate"] == 1.0
+
+
+def test_injection_rate_is_none_when_every_listed_term_is_spoken():
+    # The read-aloud set's shape: the document IS the transcript, so there
+    # is nothing to falsely accept and the metric must say so rather than
+    # report a flattering zero.
+    clips = [{"wav": "/tmp/a.wav", "text": "net sales grew", "terms": ["net sales"]}]
+    samples = [{"text": "net sales grew", "pred_text": "net sales grew"}]
+
+    assert unspoken_injections(clips, samples)["injection_rate"] is None
+
+
+def test_injection_matching_is_whole_word():
+    clips = [{"wav": "/tmp/a.wav", "text": "we shipped it", "terms": ["ray"]}]
+    samples = [{"text": "we shipped it", "pred_text": "we sprayed it"}]
+
+    assert unspoken_injections(clips, samples)["injected"] == []
+
+
+def test_per_term_stats_puts_the_terms_doing_damage_first():
+    baseline = [{"text": "we deployed alpha today", "pred_text": "we deployed alpha today"}]
+    biased = [{"text": "we deployed alpha today", "pred_text": "we deployed beta today"}]
+
+    rows = per_term_stats(["alpha", "beta"], baseline, biased)
+
+    assert rows[0]["term"] == "beta"
+    assert rows[0]["spoken"] == 0
+    assert rows[0]["biased_false_accepts"] == 1
+    alpha = next(r for r in rows if r["term"] == "alpha")
+    assert (alpha["baseline_correct"], alpha["biased_correct"]) == (1, 0)
