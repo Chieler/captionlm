@@ -3,11 +3,12 @@ term list, and write an .srt file."""
 import argparse
 from pathlib import Path
 
-from parakeet_mlx.alignment import AlignedResult
+from parakeet_mlx.alignment import AlignedResult, sentences_to_result, tokens_to_sentences
 
 from captionlm.biased_model import load_biased_model
 from captionlm.config import MODEL_ID
 from captionlm.disfluency import strip_restarts
+from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion
 from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
 
 
@@ -41,9 +42,15 @@ def result_to_srt(result: AlignedResult, drop_restarts: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
-def caption_file(audio_path: str, term_list_path: str | None, model_id: str = MODEL_ID) -> str:
+def caption_file(
+    audio_path: str,
+    term_list_path: str | None,
+    model_id: str = MODEL_ID,
+    second_opinion_model: str | None = None,
+) -> str:
     model = load_biased_model(model_id)
 
+    terms: list[str] = []
     if term_list_path:
         tokenizer = load_tokenizer(model_id)
         terms = load_term_list(term_list_path)
@@ -51,6 +58,13 @@ def caption_file(audio_path: str, term_list_path: str | None, model_id: str = MO
         model.context_graph = build_context_graph(terms, tokenizer, blank_idx)
 
     result = model.transcribe(audio_path, chunk_duration=120.0)
+
+    if second_opinion_model:
+        second = second_opinion(audio_path, second_opinion_model)
+        result = sentences_to_result(
+            tokens_to_sentences(fuse_tokens(result.tokens, second, terms))
+        )
+
     return result_to_srt(result)
 
 
@@ -60,9 +74,20 @@ def main():
     parser.add_argument("--terms", help="Path to a term list (.txt, one term per line)")
     parser.add_argument("--out", help="Output .srt path (default: <audio>.srt)")
     parser.add_argument("--model", default=MODEL_ID)
+    parser.add_argument(
+        "--second-opinion",
+        nargs="?",
+        const=WHISPER_MODEL_ID,
+        default=None,
+        metavar="MODEL_ID",
+        help="Transcribe again with an independent model and let it correct the "
+        "spans it disagrees on. Measured on the read-aloud set at 1.1b: WER "
+        "0.0712 -> 0.0560. Costs a 1.6 GB download the first time, and roughly "
+        "a quarter again of the transcription time.",
+    )
     args = parser.parse_args()
 
-    srt = caption_file(args.audio, args.terms, args.model)
+    srt = caption_file(args.audio, args.terms, args.model, args.second_opinion)
     out_path = args.out or str(Path(args.audio).with_suffix(".srt"))
     Path(out_path).write_text(srt, encoding="utf-8")
     print(f"Wrote {out_path}")

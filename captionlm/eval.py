@@ -26,6 +26,7 @@ import jiwer
 
 from captionlm.biased_model import load_biased_model
 from captionlm.config import MODEL_ID
+from captionlm.fusion import WHISPER_MODEL_ID, fuse_text, second_opinion
 from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
 from captionlm.vendor.fscore import compute_fscore, keyword_stats
 
@@ -64,13 +65,21 @@ def transcribe_biased(
     tokenizer,
     blank_idx: int,
     cb_weight: float | None = None,
+    second_opinion_model: str | None = None,
 ) -> list[dict]:
     if cb_weight is not None:
         model.spotter_config.cb_weight = cb_weight
     samples = []
     for clip in clips:
         model.context_graph = build_context_graph(clip["terms"], tokenizer, blank_idx)
-        samples.extend(transcribe_clips(model, [clip]))
+        sample = transcribe_clips(model, [clip])[0]
+        if second_opinion_model:
+            sample["pred_text"] = fuse_text(
+                sample["pred_text"],
+                second_opinion(clip["wav"], second_opinion_model),
+                clip["terms"],
+            )
+        samples.append(sample)
     return samples
 
 
@@ -253,6 +262,7 @@ def run_eval(
     model_id: str = MODEL_ID,
     cb_weight: float | None = None,
     baseline: list[dict] | None = None,
+    second_opinion_model: str | None = None,
 ) -> dict:
     all_terms = load_term_list(term_list_path)
     clips = load_clips(clip_dir, fallback_terms=all_terms)
@@ -263,7 +273,9 @@ def run_eval(
         baseline = transcribe_baseline(model, clips)
 
     tokenizer = load_tokenizer(model_id)
-    biased = transcribe_biased(model, clips, tokenizer, len(model.vocabulary), cb_weight)
+    biased = transcribe_biased(
+        model, clips, tokenizer, len(model.vocabulary), cb_weight, second_opinion_model
+    )
 
     stats = score(clips, baseline, biased, all_terms)
     stats["cb_weight"] = cb_weight
@@ -277,10 +289,22 @@ def main():
     parser.add_argument("terms", help="Path to the combined domain term list (.txt), used for F-score scoring")
     parser.add_argument("--model", default=MODEL_ID)
     parser.add_argument("--cb-weight", type=float, default=None)
+    parser.add_argument(
+        "--second-opinion",
+        nargs="?",
+        const=WHISPER_MODEL_ID,
+        default=None,
+        metavar="MODEL_ID",
+        help="Fuse each biased hypothesis with an independent model's transcript "
+        "of the same audio (see captionlm/fusion.py).",
+    )
     parser.add_argument("--out-json", help="Write full per-clip results to this path as JSON")
     args = parser.parse_args()
 
-    stats = run_eval(args.clip_dir, args.terms, args.model, args.cb_weight)
+    stats = run_eval(
+        args.clip_dir, args.terms, args.model, args.cb_weight,
+        second_opinion_model=args.second_opinion,
+    )
     for label in ("baseline", "biased"):
         s = stats[label]
         rate = "n/a" if s["injection_rate"] is None else f"{s['injection_rate']:.4f}"

@@ -7,6 +7,17 @@ clip's own extracted term list at `cb_weight` 3.0 — the configuration
 **Current: 119 errors over 1517 reference words, WER 0.0784.**
 **Target: 76 errors. 43 error words have to go — 36% of the residual.**
 
+> **Superseded in two places, 2026-09-01.** Items 1 and 2 have both been
+> measured. Item 1 shipped at −0.0073. Item 2 — document-conditioned
+> rescoring — was tried four ways and every one of them made the transcript
+> worse; what reached the same failures was a second acoustic model rather
+> than a language model, at −0.0152, taking the set to 85 errors and 0.0560.
+> That work also found that **44 of these 119 error words are not ASR errors
+> at all** — Whisper makes them identically, because the reader departed from
+> the script — which falsifies the inflection row below. See
+> `2026-09-01-a-second-opinion-on-the-same-audio.md`. The buckets and the
+> "what will not work" section stand; the per-item forecast does not.
+
 ## The budget
 
 Every residual error span, bucketed. Reproduce with the alignment in
@@ -32,7 +43,7 @@ Splitting those 39 spans by what actually went wrong:
 |---|---|---|
 | acoustically distant substitution | ~23 | `quorum` → `core`, `vector clock` → `different machinery` |
 | listed term garbled anyway | 7 | `linearizability` → `delarizability`, `anthropic` → `ntpic` |
-| inflection only, stem correct | 5 | `protocol` → `protocols`, `objects` → `object` |
+| inflection only, stem correct | 5 | `protocol` → `protocols`, `objects` → `object` (**not ASR errors — the reader said these**) |
 | homophone | 4 | `groq` → `grok` (**both listed**), `write` → `right` |
 
 ## What each change is worth
@@ -40,7 +51,7 @@ Splitting those 39 spans by what actually went wrong:
 | # | change | reaches | words | ΔWER | confidence |
 |---|---|---|---|---|---|
 | 1 | disfluency suppression | reader restarts | ~~14~~ **11** | ~~−0.0092~~ **−0.0073** | ~~high~~ **done** |
-| 2 | document-conditioned rescoring | inflection, homophones, function, ordinary content | ~30 of 61 | −0.020 | medium |
+| 2 | document-conditioned rescoring | inflection, homophones, function, ordinary content | ~30 of 61 | ~~−0.020~~ | ~~medium~~ **falsified; a second acoustic model got −0.0152 instead** |
 | 3 | per-term `cb_weight` | garbled listed terms | 3–4 of 7 | −0.002 | medium-low |
 | 4 | remaining merge collateral | some function words | 2–4 | −0.002 | low |
 
@@ -85,7 +96,12 @@ starts is worse than one that does not.
 Two-for-one: it is a real product feature and it removes measurement
 noise that inflates every WER number this project has recorded.
 
-### 2. Document-conditioned rescoring — the only lever big enough
+### 2. Document-conditioned rescoring — MEASURED: it does not work
+
+**Four variants, all worse than doing nothing** (120, 104, 104 and 118
+errors against 108). A second acoustic model reached the same buckets for
+−0.0152. The reasoning below is kept because the buckets it names are still
+the right ones; the conclusion it draws from them is not.
 
 The failures it reaches are exactly the ones no term list can:
 
