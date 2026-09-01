@@ -52,3 +52,64 @@ def test_build_context_graph_accepts_the_matching_blank_idx():
     tokenizer = load_tokenizer(MODEL_ID)
     graph = build_context_graph(["Kubernetes"], tokenizer, tokenizer.get_piece_size())
     assert graph is not None
+
+
+def test_the_trie_carries_the_blank_token_per_ctc_topology():
+    """CTC-WS needs blank arcs in the graph, not just in the model.
+
+    A CTC alignment emits blanks between and inside tokens, so a trie with
+    only token arcs would lose every token pass at the first blank frame and
+    spot nothing. This is an architectural invariant that fails silently --
+    the spotter would simply stop firing -- so it is asserted rather than
+    assumed.
+    """
+    tokenizer = load_tokenizer(MODEL_ID)
+    blank = tokenizer.get_piece_size()
+    graph = build_context_graph(["Groq", "Grok", "linearizability"], tokenizer, blank)
+
+    nodes, stack = {}, [graph.root]
+    while stack:
+        node = stack.pop()
+        if node.index in nodes:
+            continue
+        nodes[node.index] = node
+        stack.extend(n for n in node.next.values() if n.index != node.index)
+
+    is_blank_node = lambda n: n.next.get(blank) is n  # noqa: E731
+
+    # The root must NOT have a blank arc: the spotter seeds a fresh empty
+    # token at the root on every frame, so a blank self-loop there would
+    # only duplicate that.
+    assert blank not in graph.root.next
+
+    blank_nodes = [n for n in nodes.values() if n is not graph.root and is_blank_node(n)]
+    assert blank_nodes, "no blank nodes in the graph at all"
+
+    for node in nodes.values():
+        if node is graph.root or is_blank_node(node):
+            continue
+        forward = {t for t, m in node.next.items() if m.index != node.index}
+        if forward - {blank}:
+            assert blank in node.next, f"node {node.index} has no blank detour"
+        # A token held across several frames repeats, so every token node
+        # needs a self-loop on its own token.
+        assert any(m.index == node.index for m in node.next.values())
+
+
+def test_the_blank_detour_rejoins_the_same_next_state():
+    """Blank arcs must be a detour, not a dead end.
+
+    "G" -> "ro" has to be reachable both directly and through any number of
+    blank frames, and both paths must land on the SAME node -- otherwise the
+    blank path builds a parallel branch whose end state is never marked as a
+    word.
+    """
+    tokenizer = load_tokenizer(MODEL_ID)
+    blank = tokenizer.get_piece_size()
+    ids = tokenizer.encode("Groq", out_type=int)
+    graph = build_context_graph(["Groq"], tokenizer, blank)
+
+    first = graph.root.next[ids[0]]
+    blank_node = first.next[blank]
+    assert blank_node.next[blank] is blank_node, "blank node must self-loop"
+    assert first.next[ids[1]] is blank_node.next[ids[1]]
