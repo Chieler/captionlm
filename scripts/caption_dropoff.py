@@ -59,8 +59,8 @@ def main():
                         metavar="MODEL_ID",
                         help="Transcribe again with an independent model and let it "
                              "correct the spans it disagrees on. Measured at 1.1b: "
-                             "read-aloud WER 0.0712 -> 0.0560, Earnings-21 0.1918 -> "
-                             "0.1837, with term recall up on both. Costs a 1.6 GB "
+                             "read-aloud WER 0.0712 -> 0.0560, Earnings-21 0.1929 -> "
+                             "0.1858, with term recall up on both. Costs a 1.6 GB "
                              "download and about a quarter again of the runtime.")
     args = parser.parse_args()
 
