@@ -139,6 +139,14 @@ Twenty-three, twenty-three and twenty-five error words. The gain does not
 come from having landed on a lucky weight, and 3.0 is still the floor of the
 curve after fusion as it was before.
 
+### Biasing the second model too — declined
+
+Whisper takes an `initial_prompt`, and feeding it the same term list looks
+like free extra recall on the arm that has none. It is the opposite: Whisper
+alone goes from 197 errors to 254, and fusing against it from 85 to 97. The
+prompt drags its style and it starts producing the list rather than the
+audio. The second opinion is only useful while it stays an independent one.
+
 ## An LLM arbiter, measured and declined
 
 The obvious next move is to arbitrate the remaining disagreements with a
@@ -249,14 +257,32 @@ by the material: parakeet 1.1b is excellent on clean scripted single-speaker
 audio and much weaker on spontaneous conversational speech, which is what a
 real user records.
 
-This fusion keeps parakeet as the backbone on both, because the backbone
-cannot be chosen at inference time — nothing tells you in advance which kind
-of audio you have — and because parakeet is the arm CTC-WS biasing attaches
-to. That is a defensible default and it gains on both sets. It is not
-obviously the best one. The open question this raises, and does not answer,
-is whether the whole architecture should be Whisper as backbone with the
-spotter's terms merged into it, which would trade the 0.0712 on clean audio
-for something much better on the audio users actually have.
+Swapping the backbone was the obvious response, and it was measured: run the
+same rules with Whisper as the backbone and parakeet as the second opinion,
+with a listed term winning from whichever arm holds it.
+
+| backbone | read-aloud | Earnings-21 |
+|---|---|---|
+| parakeet (shipped) | **85 errors, 0.0560** | **0.1830** |
+| Whisper | 89 errors, 0.0587 | 0.1850 |
+| Whisper alone, no fusion | 197 errors, 0.1299 | **0.1299** |
+
+Worse both times, and the Earnings-21 row is the surprising one: on audio
+where Whisper alone wins by 0.05, letting parakeet correct it gives most of
+that back. Whichever model is behind, these rules protect the backbone, and
+protecting the wrong backbone costs more than the fusion gains.
+
+So the shipped direction is right and the question is not about fusion at
+all. It is that **on spontaneous speech, plain Whisper beats this project's
+entire biased pipeline — on WER (0.1299 against 0.1911), on term precision
+(0.9620 against 0.9112), and on term recall (0.9763 against 0.9733)**, with
+no term list and nothing to extract. Biasing earns its keep on the read-aloud
+set, where recall is 0.7890 unbiased against 0.9231 biased, and that set is
+clean scripted single-speaker audio read from the reference itself.
+
+Nothing here settles it: two term lists, one of them generic, and nine calls.
+But it is the measurement that should decide what gets built next, and it
+points away from tuning the spotter.
 
 ## The caveat that still governs all of it
 
