@@ -65,3 +65,16 @@ def test_the_second_opinion_is_scored_better_than_going_without():
     for preset in ("110m", "1.1b"):
         assert float(SCORES[(preset, True)]["recall"]) > float(SCORES[(preset, False)]["recall"])
         assert float(SCORES[(preset, True)]["wer"]) < float(SCORES[(preset, False)]["wer"])
+
+
+def test_a_job_that_throws_stops_the_row_it_died_on():
+    # Otherwise the row keeps status "working" and its progress bar animates
+    # for the rest of the session, under an error banner, with nothing behind it.
+    from serve import run_job, state
+
+    state["files"] = [{"name": "a.wav", "status": "working", "stage": "transcribing", "progress": 40}]
+    run_job("no-such-preset", False)
+
+    assert state["files"][0]["status"] == "failed"
+    assert state["files"][0]["progress"] == 0
+    assert state["error"] and not state["running"]

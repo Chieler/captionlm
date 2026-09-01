@@ -183,6 +183,12 @@ def run_job(preset: str, want_second: bool) -> None:
     except Exception:
         with _lock:
             state["error"] = traceback.format_exc(limit=3)
+            # Whatever row we died on is not working any more. Leaving it
+            # marked "working" leaves its progress bar moving for the rest of
+            # the session, under an error banner, with nothing behind it.
+            for row in state["files"]:
+                if row["status"] == "working":
+                    row.update(status="failed", stage="", progress=0)
     finally:
         with _lock:
             state["running"] = False
