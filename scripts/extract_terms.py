@@ -12,28 +12,14 @@ different things -- pyate finds multi-word domain phrases, NER finds the
 proper nouns that pyate never returns.
 """
 import argparse
-import itertools
 
-from captionlm.biasable import extract_entities, filter_biasable, merge_term_lists
+from captionlm.biasable import extract_bias_terms
 from captionlm.config import TERM_EXTRACTION_TOP_N
 from captionlm.doc_import import extract_text
-from captionlm.term_extraction import extract_terms
 
 
 def terms_for(text: str, mode: str, top_n: int) -> list[str]:
-    terminology = filter_biasable(extract_terms(text, top_n=top_n)) if mode != "ner" else []
-    entities = extract_entities(text, top_n=top_n) if mode != "terminology" else []
-    if mode == "terminology":
-        return terminology
-    if mode == "ner":
-        return entities
-    # Each stream is already capped at top_n, so concatenating them would
-    # return up to 2*top_n. Interleaving before the cap keeps the head of
-    # both rankings; concatenating and truncating would make `combined`
-    # degenerate into `ner` at any top_n below the entity count.
-    paired = itertools.zip_longest(entities, terminology)
-    interleaved = [t for pair in paired for t in pair if t is not None]
-    return merge_term_lists(interleaved)[:top_n]
+    return extract_bias_terms(text, mode=mode, top_n=top_n)
 
 
 def main():

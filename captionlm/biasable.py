@@ -41,6 +41,7 @@ single words -- and fixes what that heuristic could not: it kept "node"
 """
 import collections
 import functools
+import itertools
 import re
 
 import spacy
@@ -248,3 +249,31 @@ def merge_term_lists(*lists: list[str]) -> list[str]:
                 seen.add(key)
                 merged.append(term)
     return merged
+
+
+def extract_bias_terms(text: str, mode: str = "combined", top_n: int | None = None) -> list[str]:
+    """Terms to bias transcription toward, from a source document.
+
+    The three modes are the three hypotheses worth separating.
+    `terminology` is pyate's statistical extraction with the biasable
+    filter applied; `ner` is this module's harvest of names, rare nouns
+    and rare-anchored bigrams; `combined` is their union, and is what a
+    product ships, because the two streams find different things.
+
+    Interleave before capping: each stream is already capped at top_n, so
+    concatenating them would return up to 2*top_n, and concatenating then
+    truncating would make `combined` degenerate into `ner` at any top_n
+    below the entity count.
+    """
+    from captionlm.term_extraction import extract_terms
+
+    terminology = filter_biasable(extract_terms(text, top_n=top_n or 10**9)) if mode != "ner" else []
+    entities = extract_entities(text, top_n=top_n) if mode != "terminology" else []
+    if mode == "terminology":
+        return terminology[:top_n] if top_n else terminology
+    if mode == "ner":
+        return entities
+    paired = itertools.zip_longest(entities, terminology)
+    interleaved = [t for pair in paired for t in pair if t is not None]
+    merged = merge_term_lists(interleaved)
+    return merged[:top_n] if top_n else merged

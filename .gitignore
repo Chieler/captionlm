@@ -15,3 +15,7 @@ read_aloud/*.mp3
 read_aloud/*.terms.txt
 eval_results_sweep.log
 read_aloud/*.mp4
+
+# user drop-off: keep the README, ignore everything dropped in
+dropoff/*
+!dropoff/README.md
