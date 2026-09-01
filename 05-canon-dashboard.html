@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CaptionLM</title>
+<style>
+  :root{
+    --bg:#f7f7f8; --panel:#fff; --line:#e5e5ea; --ink:#16161a; --muted:#71717a;
+    --accent:#3457e8; --accent-soft:#eaeefd; --green:#1a8f5a; --green-soft:#e8f6ef;
+    --amber:#8a6100; --amber-soft:#fdf3e0; --red:#b42318; --red-soft:#fdecea;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45;
+  }
+  .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+
+  header{
+    background:var(--panel); border-bottom:1px solid var(--line); padding:14px 24px;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  }
+  header .wm{ font-weight:700; font-size:15px; }
+  header .path{ font-size:12.5px; color:var(--muted); }
+  header .spacer{ flex:1; }
+
+  button{ font:inherit; cursor:pointer; }
+  .btn{
+    font-size:13px; font-weight:600; padding:8px 14px; border-radius:7px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink);
+  }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+
+  /* --- the two choices that change the output --- */
+  .controls{
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:12px 24px; display:flex; align-items:center; gap:26px; flex-wrap:wrap;
+  }
+  .ctl{ display:flex; align-items:center; gap:10px; }
+  .ctl > label{ font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .seg{ display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button{
+    border:0; background:var(--panel); padding:7px 13px; font-size:13px; color:var(--muted);
+    border-right:1px solid var(--line);
+  }
+  .seg button:last-child{ border-right:0; }
+  .seg button[aria-pressed="true"]{ background:var(--accent-soft); color:var(--accent); font-weight:700; }
+  .seg .sub{ display:block; font-size:10.5px; font-weight:400; color:var(--muted); }
+  .seg button[aria-pressed="true"] .sub{ color:var(--accent); }
+
+  .scores{ margin-left:auto; display:flex; gap:22px; }
+  .score{ text-align:right; }
+  .score b{ display:block; font-size:15px; font-variant-numeric:tabular-nums; }
+  .score span{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .score.lead b{ color:var(--accent); }
+
+  .rig{ max-width:1280px; margin:0 auto; display:grid; grid-template-columns:340px 1fr; gap:16px; padding:20px; }
+  @media (max-width:900px){ .rig{ grid-template-columns:1fr; } }
+
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .panel-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .panel-head h2{ margin:0; font-size:13px; font-weight:700; }
+  .panel-head .n{ font-size:12px; color:var(--muted); }
+
+  .row{
+    width:100%; text-align:left; background:none; border:0; border-bottom:1px solid var(--line);
+    padding:11px 8px; border-radius:6px; display:block;
+  }
+  .row:last-of-type{ border-bottom:none; }
+  .row[aria-selected="true"]{ background:var(--accent-soft); }
+  .row .top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .row .fname{ font-size:13px; font-weight:600; word-break:break-all; }
+  .row .fmeta{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .row .fmeta.none{ color:var(--amber); }
+
+  .chip{ font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; flex:none; }
+  .chip.ready{ background:#f0f0f2; color:var(--muted); }
+  .chip.working{ background:var(--accent-soft); color:var(--accent); }
+  .chip.done{ background:var(--green-soft); color:var(--green); }
+
+  .bar{ height:5px; background:#eee; border-radius:3px; overflow:hidden; margin-top:7px; }
+  .bar i{ display:block; height:100%; background:var(--accent); transition:width .25s; }
+  .bar.indet i{ width:35%; animation:slide 1.1s ease-in-out infinite alternate; }
+  @keyframes slide{ from{ margin-left:0 } to{ margin-left:65% } }
+
+  .dropzone{
+    margin-top:12px; border:1.5px dashed var(--line); border-radius:8px; padding:20px;
+    text-align:center; color:var(--muted); font-size:12.5px; cursor:pointer;
+  }
+  .dropzone.over{ border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+
+  .now .vname{ font-size:20px; font-weight:700; word-break:break-all; }
+  .now .vmeta{ font-size:12.5px; color:var(--muted); margin-bottom:16px; }
+
+  .stage{ display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:6px; }
+  .stage b{ color:var(--accent); font-variant-numeric:tabular-nums; }
+  .bar.big{ height:8px; border-radius:5px; margin-bottom:20px; }
+
+  .terms{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:18px; }
+  .term{ font-size:11.5px; background:#f2f2f4; border-radius:5px; padding:2px 7px; }
+
+  .transcript{ border:1px solid var(--line); border-radius:8px; overflow:hidden; max-height:420px; overflow-y:auto; }
+  .t-row{ display:grid; grid-template-columns:64px 1fr; padding:11px 14px; border-bottom:1px solid var(--line); font-size:13.5px; }
+  .t-row:last-child{ border-bottom:none; }
+  .t-row .tc{ color:var(--muted); }
+  .strike{ text-decoration:line-through; color:#b3b3ba; margin-right:4px; }
+  .fix{ color:var(--green); font-weight:600; }
+  .src{ display:block; font-size:11px; color:var(--accent); margin-top:3px; }
+
+  .export{ display:flex; gap:10px; margin-top:18px; }
+  .export .btn{ flex:1; text-align:center; text-decoration:none; }
+  .empty{ color:var(--muted); font-size:13px; padding:26px 0; text-align:center; }
+  .err{ background:var(--red-soft); color:var(--red); border-radius:8px; padding:12px 14px;
+        font-size:12.5px; white-space:pre-wrap; margin-bottom:16px; }
+  .note{ font-size:11.5px; color:var(--muted); margin-top:14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="wm">CaptionLM</span>
+  <span class="path mono" id="dropPath">dropoff/</span>
+  <div class="spacer"></div>
+  <button class="btn primary" id="run">Caption everything</button>
+</header>
+
+<div class="controls">
+  <div class="ctl">
+    <label id="lblModel">Model</label>
+    <div class="seg" role="group" aria-labelledby="lblModel" id="segModel">
+      <button data-preset="110m" aria-pressed="true">Small<span class="sub">438 MB · 59x</span></button>
+      <button data-preset="1.1b" aria-pressed="false">Large<span class="sub">4.0 GB · 30x</span></button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <label id="lblCombo">Second opinion</label>
+    <div class="seg" role="group" aria-labelledby="lblCombo" id="segCombo">
+      <button data-second="0" aria-pressed="true">Off<span class="sub">one model</span></button>
+      <button data-second="1" aria-pressed="false">On<span class="sub">+1.6 GB Whisper</span></button>
+    </div>
+  </div>
+
+  <div class="scores">
+    <div class="score lead"><b id="sRecall">0.9073</b><span>term recall</span></div>
+    <div class="score"><b id="sWer">0.0850</b><span>WER</span></div>
+    <div class="score"><b id="sSpeed">59x</b><span>realtime</span></div>
+  </div>
+</div>
+
+<div class="rig">
+  <section class="panel">
+    <div class="panel-head"><h2>Drop-off</h2><span class="n" id="fileCount">0 recordings</span></div>
+    <div id="files"></div>
+    <div class="dropzone" id="drop">Drop a recording and the document it is about — same basename — or click to browse</div>
+    <input type="file" id="picker" multiple hidden>
+    <p class="note">A recording with no matching document is still transcribed, unbiased. That is the honest baseline.</p>
+  </section>
+
+  <section class="panel" id="detail"></section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let selected = null, lastSig = "";
+
+/* ---- controls ---------------------------------------------------------- */
+function segment(el, attr, onPick) {
+  el.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    [...el.children].forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    onPick(btn.dataset[attr]);
+  });
+}
+const settings = { preset: "110m", second_opinion: false };
+function pushSettings() {
+  fetch("/api/settings", { method: "POST", body: JSON.stringify(settings) }).then(refresh);
+}
+segment($("segModel"), "preset", (v) => { settings.preset = v; pushSettings(); });
+segment($("segCombo"), "second", (v) => { settings.second_opinion = v === "1"; pushSettings(); });
+
+/* ---- upload ------------------------------------------------------------ */
+async function upload(files) {
+  for (const f of files) {
+    await fetch("/api/upload?name=" + encodeURIComponent(f.name), { method: "PUT", body: f });
+  }
+  refresh();
+}
+const drop = $("drop");
+drop.addEventListener("click", () => $("picker").click());
+$("picker").addEventListener("change", (e) => upload(e.target.files));
+["dragenter", "dragover"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => upload(e.dataTransfer.files));
+
+$("run").addEventListener("click", async () => {
+  const r = await fetch("/api/run", { method: "POST", body: "{}" }).then((x) => x.json());
+  if (r.error) alert(r.error);
+  refresh();
+});
+
+/* ---- render ------------------------------------------------------------ */
+const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function renderFiles(st) {
+  $("fileCount").textContent = st.files.length + (st.files.length === 1 ? " recording" : " recordings");
+  $("files").innerHTML = st.files.length ? "" : '<div class="empty">Nothing dropped off yet.</div>';
+  for (const f of st.files) {
+    const b = document.createElement("button");
+    b.className = "row";
+    b.setAttribute("aria-selected", String(f.name === selected));
+    b.innerHTML =
+      `<div class="top"><span class="fname">${esc(f.name)}</span>` +
+      `<span class="chip ${f.status}">${f.status === "working" ? esc(f.stage || "working") : f.status}</span></div>` +
+      `<div class="fmeta${f.doc ? "" : " none"}">${mb(f.size)} · ${f.doc ? "biased by " + esc(f.doc) : "no document — unbiased"}</div>` +
+      (f.status === "working"
+        ? `<div class="bar${f.stage === "transcribing" ? "" : " indet"}"><i style="width:${f.progress}%"></i></div>` : "");
+    b.onclick = () => { selected = f.name; render(st); };
+    $("files").appendChild(b);
+  }
+}
+
+/* Mark the first span in this cue that the second model rewrote, showing what
+   it replaced. Index-based rather than regex so caption text containing
+   regex metacharacters cannot break the render. */
+function renderCue(cue, changes) {
+  const lower = cue.text.toLowerCase();
+  for (const ch of changes) {
+    if (!ch.to || !ch.from) continue;
+    const at = lower.indexOf(ch.to.toLowerCase());
+    if (at === -1) continue;
+    const body =
+      esc(cue.text.slice(0, at)) +
+      `<span class="strike">${esc(ch.from)}</span>` +
+      `<span class="fix">${esc(cue.text.substr(at, ch.to.length))}</span>` +
+      esc(cue.text.slice(at + ch.to.length)) +
+      `<span class="src">Corrected by the second model</span>`;
+    return `<div class="t-row"><span class="tc mono">${esc(cue.time)}</span><span>${body}</span></div>`;
+  }
+  return `<div class="t-row"><span class="tc mono">${esc(cue.time)}</span><span>${esc(cue.text)}</span></div>`;
+}
+
+function renderDetail(st) {
+  const f = st.files.find((x) => x.name === selected) || st.files.find((x) => x.status === "working") || st.files[0];
+  const d = $("detail");
+  if (!f) { d.innerHTML = '<div class="empty">Drop a recording in to get started.</div>'; return; }
+  selected = f.name;
+
+  const changes = f.changes || [], cues = f.cues || [];
+
+  d.innerHTML =
+    (st.error ? `<div class="err">${esc(st.error)}</div>` : "") +
+    `<div class="now"><div class="vname">${esc(f.name)}</div>` +
+    `<div class="vmeta">${mb(f.size)} · ${f.doc ? esc(f.doc) + " → " + (f.terms.length ? f.terms.length + "+ terms" : "terms") : "unbiased"}` +
+    `${f.status === "done" && changes.length ? " · " + changes.length + " span" + (changes.length === 1 ? "" : "s") + " corrected by the second model" : ""}</div></div>` +
+
+    (f.status === "working"
+      ? `<div class="stage"><span>${esc(f.stage || "working")}</span>` +
+        `<b>${f.stage === "transcribing" ? f.progress + "%" : ""}</b></div>` +
+        `<div class="bar big${f.stage === "transcribing" ? "" : " indet"}"><i style="width:${f.progress}%"></i></div>`
+      : "") +
+
+    (f.terms.length ? `<div class="terms">${f.terms.map((t) => `<span class="term">${esc(t)}</span>`).join("")}</div>` : "") +
+
+    (cues.length
+      ? `<div class="transcript">${cues.map((c) => renderCue(c, changes)).join("")}</div>`
+      : f.status === "done" ? "" : `<div class="empty">No captions yet. Press \u201CCaption everything\u201D.</div>`) +
+
+    (f.status === "done"
+      ? `<div class="export"><a class="btn primary" href="/api/srt?name=${encodeURIComponent(f.name)}" download>Download .SRT</a></div>`
+      : "");
+}
+
+function render(st) {
+  $("sRecall").textContent = st.scores.recall;
+  $("sWer").textContent = st.scores.wer;
+  $("sSpeed").textContent = st.scores.speed;
+  $("run").disabled = st.running || !st.files.length;
+  $("run").textContent = st.running ? "Working…" : "Caption everything";
+  renderFiles(st);
+  renderDetail(st);
+}
+
+async function refresh() {
+  const st = await fetch("/api/state").then((r) => r.json());
+  const sig = JSON.stringify(st) + selected;
+  if (sig !== lastSig) { lastSig = sig; render(st); }
+}
+refresh();
+setInterval(refresh, 700);
+</script>
+</body>
+</html>

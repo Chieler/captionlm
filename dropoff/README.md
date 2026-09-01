@@ -12,11 +12,22 @@ dropoff/standup.m4a      <- the recording
 dropoff/standup.pdf      <- the document it is about
 ```
 
-Then, from the repo root:
+Then, from the repo root, either the command line:
 
 ```bash
 PYTHONPATH=. venv/bin/python scripts/caption_dropoff.py
 ```
+
+or the browser, which does the same work with the two quality choices
+visible instead of buried in flags:
+
+```bash
+PYTHONPATH=. venv/bin/python scripts/serve.py    # http://localhost:8756
+```
+
+The UI drops files into this directory, shows real transcription progress,
+and marks the spans the second model corrected. It runs one job at a time
+and binds loopback only.
 
 You get:
 
