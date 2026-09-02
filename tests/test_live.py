@@ -96,15 +96,26 @@ def test_a_long_delivery_is_decoded_before_it_is_trimmed(session):
     assert len(session._buffer) <= 30 * RATE
 
 
-def test_a_gap_in_the_buffer_is_reported_rather_than_hidden(session):
-    # The guard for audio discarded before any pass committed it. Reaching it
-    # requires forcing the state, which is the point -- it should not happen.
-    session.add_audio(_silence(10.0))
-    session._buffer_start = 20.0
-    session.committed_until = 5.0
-    session._decode()
-    assert session.degraded is True
-    assert session.committed_until >= 20.0
+class SilentModel(FakeModel):
+    """A model that never produces a token, so nothing ever commits."""
+
+    def generate(self, mel, *, decoding_config=None):
+        self.calls += 1
+        return [sentences_to_result(tokens_to_sentences([]))]
+
+
+def test_audio_trimmed_before_it_was_committed_is_reported(monkeypatch):
+    # Nothing ever commits, so committed_until stays at 0 while the buffer
+    # slides forward. The audio that slid off was never transcribed, and
+    # saying so beats resuming as though it had been.
+    monkeypatch.setattr(live, "get_logmel", lambda audio, cfg: len(audio) // RATE)
+    s = live.LiveSession(SilentModel(), window=30.0, horizon=4.0, interval=2.0)
+
+    for _ in range(4):
+        s.add_audio(_silence(10.0))       # 40s in, 30s window
+
+    assert s.degraded is True
+    assert s.committed_until >= 10.0      # advanced past the gap, not left behind
 
 
 def test_a_slow_pass_slows_the_cadence_and_says_so(monkeypatch):
