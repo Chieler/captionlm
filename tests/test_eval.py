@@ -2,6 +2,7 @@ import json
 
 from captionlm.eval import (
     _wer,
+    bias_wer,
     load_clips,
     per_term_stats,
     score,
@@ -171,3 +172,35 @@ def test_yield_nets_recovered_terms_against_hallucinated_ones():
         "injections_added": 1,
         "net_term_gain": 0,
     }
+
+
+def test_bias_wer_splits_errors_by_reference_word():
+    # One substitution of a listed word, one of an unlisted word, and one
+    # inserted listed word. The insertion has no reference word, so it is
+    # attributed by what came out -- otherwise emitting listed terms
+    # everywhere would improve B-WER.
+    stats = bias_wer(
+        ["paxos runs on every node"],
+        ["taxes runs on each node paxos"],
+        ["Paxos", "linearizability"],
+    )
+
+    assert (stats["b_words"], stats["u_words"]) == (1, 4)
+    assert stats["b_errors"] == 2  # the substitution and the insertion
+    assert stats["u_errors"] == 1  # "every" -> "each"
+    assert stats["b_wer"] == 2.0
+    assert stats["u_wer"] == 0.25
+
+
+def test_bias_wer_expands_multiword_terms_into_words():
+    # The alignment is per word, so a multi-word entry enters the
+    # vocabulary as its words -- "de" counts as biased wherever it lands.
+    stats = bias_wer(
+        ["derik de bruin said hello"],
+        ["derek de bruin said hello"],
+        ["Derik De Bruin"],
+    )
+
+    assert (stats["b_words"], stats["u_words"]) == (3, 2)
+    assert stats["b_errors"] == 1
+    assert stats["u_wer"] == 0.0

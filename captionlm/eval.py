@@ -8,6 +8,11 @@ what cli.py does: one document biases its own audio. The combined term
 list passed on the command line is used for F-score scoring, so the
 metric's vocabulary stays constant across clips.
 
+WER is reported three ways: overall, and split into B-WER (reference
+words on the term list) and U-WER (the rest). Overall WER cannot settle
+whether biasing paid, because listed words are a small share of the
+words and a gain on them hides under run-to-run noise -- see bias_wer.
+
 Three term metrics, because one number cannot carry all three questions:
 F-score says how well listed terms that were spoken came out; the
 injection rate says how often a listed term that was NOT spoken got put
@@ -112,6 +117,71 @@ def _wer(references: list[str], hypotheses: list[str]) -> float:
         hypothesis_transform=_NORMALIZE,
     )
 
+
+def _bias_vocabulary(terms: list[str]) -> set[str]:
+    """The term list as a set of single normalized words.
+
+    B-WER is a per-word metric and the alignment it reads is per-word, so
+    a multi-word entry like "DERIK DE BRUIN" has to enter the vocabulary
+    as its three words. That over-counts: "de" is now a biased word
+    everywhere it appears. Every published B-WER does this -- the metric
+    is defined over a word-level bias vocabulary, not over spans -- and
+    the alternative, span alignment, would not be comparable to anyone
+    else's number.
+    """
+    vocab: set[str] = set()
+    for term in terms:
+        vocab.update(re.findall(r"[a-z0-9]+", term.lower()))
+    return vocab
+
+
+def bias_wer(references: list[str], hypotheses: list[str], terms: list[str]) -> dict:
+    """B-WER and U-WER: the same errors, split by whether the reference
+    word is on the bias list.
+
+    Plain WER hides the thing biasing is for. Listed terms are a few
+    percent of the words, so recovering all of them moves overall WER by
+    less than the noise between two runs, while a regression on ordinary
+    words that the biasing caused is invisible underneath the gain. The
+    split makes both directions legible: B-WER is the score, U-WER is the
+    guardrail that says biasing did not damage the rest of the sentence.
+
+    Errors are attributed by REFERENCE word, so a substitution or
+    deletion of a listed word is a B-WER error whatever came out instead.
+    Insertions have no reference word, so they go by the inserted word:
+    hallucinating "Paxos" is a B-WER error, and that is what keeps B-WER
+    from being gameable by emitting listed terms everywhere. Each rate's
+    denominator is its own share of the reference words, so B-WER and
+    U-WER do not average back to WER.
+    """
+    vocab = _bias_vocabulary(terms)
+    out = jiwer.process_words(
+        references,
+        hypotheses,
+        reference_transform=_NORMALIZE,
+        hypothesis_transform=_NORMALIZE,
+    )
+    errors = {True: 0, False: 0}
+    words = {True: 0, False: 0}
+    for reference, hypothesis, chunks in zip(out.references, out.hypotheses, out.alignments):
+        for chunk in chunks:
+            if chunk.type == "insert":
+                for word in hypothesis[chunk.hyp_start_idx : chunk.hyp_end_idx]:
+                    errors[word in vocab] += 1
+                continue
+            for word in reference[chunk.ref_start_idx : chunk.ref_end_idx]:
+                biased = word in vocab
+                words[biased] += 1
+                if chunk.type != "equal":
+                    errors[biased] += 1
+    return {
+        "b_wer": errors[True] / words[True] if words[True] else None,
+        "u_wer": errors[False] / words[False] if words[False] else None,
+        "b_words": words[True],
+        "u_words": words[False],
+        "b_errors": errors[True],
+        "u_errors": errors[False],
+    }
 
 def _term_words(text: str) -> str:
     """Text reduced to space-delimited words, padded so that a substring
@@ -241,6 +311,7 @@ def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms
             "precision": baseline_p,
             "recall": baseline_r,
             "fscore": baseline_f,
+            **bias_wer(references, baseline_preds, all_terms),
             **baseline_injections,
         },
         "biased": {
@@ -248,6 +319,7 @@ def score(clips: list[dict], baseline: list[dict], biased: list[dict], all_terms
             "precision": biased_p,
             "recall": biased_r,
             "fscore": biased_f,
+            **bias_wer(references, biased_preds, all_terms),
             **biased_injections,
         },
         "yield": biasing_yield(per_term, baseline_injections, biased_injections),
@@ -308,8 +380,11 @@ def main():
     for label in ("baseline", "biased"):
         s = stats[label]
         rate = "n/a" if s["injection_rate"] is None else f"{s['injection_rate']:.4f}"
+        b = "n/a" if s["b_wer"] is None else f"{s['b_wer']:.3f}"
+        u = "n/a" if s["u_wer"] is None else f"{s['u_wer']:.3f}"
         print(
-            f"{label}: WER={s['wer']:.3f} P={s['precision']:.3f} R={s['recall']:.3f} "
+            f"{label}: WER={s['wer']:.3f} B-WER={b} ({s['b_words']} words) U-WER={u} "
+            f"P={s['precision']:.3f} R={s['recall']:.3f} "
             f"F={s['fscore']:.3f} inject={rate} ({len(s['injected'])}/{s['unspoken_terms']} unspoken)"
         )
 
