@@ -88,7 +88,12 @@ class LiveSession:
             return []
 
         started = _now()
-        mel = get_logmel(mx.array(self._buffer, dtype=self._dtype), self.model.preprocessor_config)
+        # get_logmel's FFT-magnitude step reinterprets complex64 STFT output
+        # by byte width, which only lines up correctly for float32 (2x) --
+        # bf16 (4x) silently corrupts the frame count. parakeet_mlx's own
+        # load_audio always hands it float32 for exactly this reason,
+        # regardless of what dtype its own (unused) parameter requests.
+        mel = get_logmel(mx.array(self._buffer, dtype=mx.float32), self.model.preprocessor_config)
         result = self.model.generate(mel, decoding_config=self._decoding_config)[0]
         elapsed = _now() - started
 
