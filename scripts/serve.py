@@ -113,23 +113,38 @@ def scan() -> list[dict]:
     return rows
 
 
-def unpaired_docs(rows: list[dict]) -> list[str]:
-    """Documents in the drop-off with no recording of the same basename.
+def strays(rows: list[dict]) -> list[str]:
+    """Files in the drop-off attached to no recording.
 
-    `find_pairs` is keyed on audio, which is right for captioning -- a lone
-    document is nothing to transcribe. But the UI builds its whole file list
-    from it, so without this a dropped document lands on disk and appears
-    nowhere at all, which reads as the upload having failed.
+    Two ways to get one. A document dropped without a recording of the same
+    name: `find_pairs` is keyed on audio, which is right for captioning -- a
+    lone document is nothing to transcribe -- but the UI builds its file list
+    from it, so the upload would otherwise land on disk and appear nowhere.
+    And captions left behind when a recording is removed outside this UI,
+    which are excluded from pairing and so would be invisible forever.
+
+    `.converted.wav` is swept rather than listed. It is a decoding cache, it
+    is the size of the recording, and it is rebuilt on demand. The `.srt` is
+    the thing the user came for, so it is listed and never deleted for them.
     """
-    paired = {d for r in rows for d in r["docs"]}
-    return sorted(
-        os.path.basename(p)
-        for p in glob.glob(os.path.join(DROPOFF, "*"))
-        if os.path.splitext(p)[1].lower() in DOC_EXTS
-        and os.path.basename(p) not in paired
-        and os.path.basename(p) != "README.md"  # the drop-off's own instructions
-        and not p.lower().endswith(GENERATED)
-    )
+    attached = {d for r in rows for d in r["docs"]} | {r["name"] for r in rows}
+    out = []
+    for path in glob.glob(os.path.join(DROPOFF, "*")):
+        name = os.path.basename(path)
+        base = name[: -len(".converted.wav")] if name.endswith(".converted.wav") else None
+        if base is not None:
+            if not any(r["name"].startswith(base + ".") for r in rows):
+                os.remove(path)
+            continue
+        if name == "README.md" or name in attached:
+            continue
+        stem = name[: -len(".terms.txt")] if name.endswith(".terms.txt") else os.path.splitext(name)[0]
+        if name.endswith((".terms.txt", ".srt")):
+            if not any(r["name"].startswith(stem + ".") for r in rows):
+                out.append(name)
+        elif os.path.splitext(name)[1].lower() in DOC_EXTS:
+            out.append(name)
+    return sorted(out)
 
 
 def _set(row: dict, **kw) -> None:
@@ -279,7 +294,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             state["files"].append(row)
                     present = {r["name"] for r in fresh}
                     state["files"] = [r for r in state["files"] if r["name"] in present]
-                    state["unpaired"] = unpaired_docs(state["files"])
+                    state["unpaired"] = strays(state["files"])
                 return self._json(
                     {**state, "scores": SCORES[(state["preset"], state["second_opinion"])],
                      "presets": PRESETS}
@@ -321,7 +336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._json({"error": "no such endpoint"}, 404)
 
         name = os.path.basename(urllib.parse.parse_qs(url.query).get("name", [""])[0])
-        if not name or os.path.splitext(name)[1].lower() not in AUDIO_EXTS | DOC_EXTS:
+        if not name or os.path.splitext(name)[1].lower() not in AUDIO_EXTS | DOC_EXTS | {".srt"}:
             return self._json({"error": f"{name!r} is not an audio or document file"}, 400)
 
         with _lock:

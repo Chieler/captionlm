@@ -42,8 +42,14 @@ venv/bin/python scripts/serve.py    # http://localhost:8756
 
 The UI drops files into this directory, shows real transcription progress,
 and marks the spans the second model corrected. The × next to a recording
-or a waiting document removes it from this directory, along with anything a
-run wrote for it. It runs one job at a time and binds loopback only.
+or a stray file removes it from this directory, along with anything a run
+wrote for it. It runs one job at a time and binds loopback only.
+
+Remove a recording outside the UI and its `.srt` and `.terms.txt` are listed
+as strays, to be removed with the same ×; they are never deleted for you,
+because the `.srt` is the thing you came for. The `.converted.wav` beside it
+is swept on sight -- it is a decoding cache the size of the recording, and
+it is rebuilt on demand.
 
 You get:
 

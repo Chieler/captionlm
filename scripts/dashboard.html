@@ -232,9 +232,11 @@ document.addEventListener("click", async (e) => {
   e.stopPropagation();
   const name = x.dataset.del;
   if (!confirm(`Remove ${name} from the drop-off? Any captions written for it go too.`)) return;
-  const r = await fetch("/api/file?name=" + encodeURIComponent(name), { method: "DELETE" })
-    .then((res) => res.json());
-  if (r.error) alert(r.error);
+  const res = await fetch("/api/file?name=" + encodeURIComponent(name), { method: "DELETE" });
+  const r = await res.json();
+  // 404 means it went with a sibling we just removed -- the refresh below is
+  // the whole correction needed.
+  if (r.error && res.status !== 404) alert(r.error);
   if (name === selected) selected = null;
   refresh();
 });
@@ -282,8 +284,8 @@ function renderFiles(st) {
       waiting.map((n) =>
         `<span class="term">${esc(n)}<span class="x" data-del="${esc(n)}" ` +
         `title="Remove ${esc(n)}">&times;</span></span>`).join("") +
-      `<div>${waiting.length === 1 ? "This document has" : "These documents have"} no recording ` +
-      `of the same name yet, so nothing is biased by ${waiting.length === 1 ? "it" : "them"}.</div>`;
+      `<div>Attached to no recording. Drop one in with the same name, or remove ` +
+      `${waiting.length === 1 ? "it" : "them"}.</div>`;
     $("files").appendChild(d);
   }
 }

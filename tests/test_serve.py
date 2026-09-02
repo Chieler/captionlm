@@ -95,44 +95,7 @@ def test_a_document_with_no_recording_is_still_listed(tmp_path, monkeypatch):
     monkeypatch.setattr(serve, "DROPOFF", str(tmp_path))
 
     rows = [{"name": "standup.m4a", "docs": ["standup.txt"]}]
-    assert serve.unpaired_docs(rows) == ["notes.txt"]
-
-
-def test_several_documents_can_bias_one_recording(tmp_path):
-    # One recording, three source documents. Before this, find_pairs held a
-    # single document per basename and the other two were silently dropped.
-    from caption_dropoff import find_pairs
-
-    for name in ("standup.m4a", "standup.txt", "standup-notes.md", "standup_slides.csv"):
-        (tmp_path / name).write_text("x")
-    audio, docs = find_pairs(str(tmp_path))[0]
-
-    assert os.path.basename(audio) == "standup.m4a"
-    assert [os.path.basename(d) for d in docs] == [
-        "standup-notes.md", "standup.txt", "standup_slides.csv"
-    ]
-
-
-def test_a_document_goes_to_the_longest_recording_it_could_match(tmp_path):
-    from caption_dropoff import find_pairs
-
-    for name in ("standup.m4a", "standup-part2.m4a", "standup-part2.txt"):
-        (tmp_path / name).write_text("x")
-    got = {os.path.basename(a): [os.path.basename(d) for d in ds] for a, ds in find_pairs(str(tmp_path))}
-
-    assert got == {"standup.m4a": [], "standup-part2.m4a": ["standup-part2.txt"]}
-
-
-def test_a_run_does_not_feed_its_own_output_back_in(tmp_path):
-    # standup.terms.txt reads as a document for standup.m4a, and
-    # standup.converted.wav as a recording of its own.
-    from caption_dropoff import find_pairs
-
-    for name in ("standup.m4a", "standup.terms.txt", "standup.converted.wav", "standup.srt"):
-        (tmp_path / name).write_text("x")
-    pairs = find_pairs(str(tmp_path))
-
-    assert [(os.path.basename(a), ds) for a, ds in pairs] == [("standup.m4a", [])]
+    assert serve.strays(rows) == ["notes.txt"]
 
 
 def test_deleting_a_recording_takes_its_generated_files_with_it():
@@ -171,3 +134,38 @@ def _delete(serve, name):
 
     Fake().do_DELETE()
     return captured["code"], captured["body"]
+
+
+def test_captions_left_by_a_recording_removed_outside_the_ui_are_listed():
+    # Generated files are excluded from pairing, so without this they sit in
+    # the drop-off invisible and unremovable.
+    import serve
+
+    d = tempfile.mkdtemp()
+    for name in ("ghost.srt", "ghost.terms.txt", "keep.srt", "keep.terms.txt"):
+        open(os.path.join(d, name), "w").write("x")
+    open(os.path.join(d, "keep.wav"), "w").write("x")
+
+    serve.DROPOFF = d
+    try:
+        rows = [{"name": "keep.wav", "docs": []}]
+        assert serve.strays(rows) == ["ghost.srt", "ghost.terms.txt"]
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_the_decoding_cache_of_a_gone_recording_is_swept_not_listed():
+    # It is the size of the recording and rebuilt on demand, unlike the .srt,
+    # which is what the user came for and is never deleted for them.
+    import serve
+
+    d = tempfile.mkdtemp()
+    for name in ("ghost.converted.wav", "keep.converted.wav", "keep.m4a"):
+        open(os.path.join(d, name), "w").write("x")
+
+    serve.DROPOFF = d
+    try:
+        assert serve.strays([{"name": "keep.m4a", "docs": []}]) == []
+        assert sorted(os.listdir(d)) == ["keep.converted.wav", "keep.m4a"]
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
