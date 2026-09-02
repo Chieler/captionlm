@@ -54,6 +54,30 @@ def measure_duty_cycle(model, wav: str, **kw) -> dict:
     }
 
 
+def measure_acceptance(model, wav: str, reference: str, **kw) -> dict:
+    """Live transcript versus batch transcript of the same audio.
+
+    Both are scored against the reference so the number is a WER a reader
+    already knows how to interpret, rather than a similarity score between two
+    hypotheses.
+    """
+    _, committed, _, _ = _feed(model, wav, **kw)
+    live_text = "".join(t.text for t in committed).strip()
+    batch_text = model.transcribe(wav, chunk_duration=120.0).text.strip()
+
+    # _wer applies eval.py's normaliser to both sides, so this number is
+    # directly comparable to every other WER this project has recorded.
+    live_wer = _wer([reference], [live_text])
+    batch_wer = _wer([reference], [batch_text])
+    return {
+        "live_wer": live_wer,
+        "batch_wer": batch_wer,
+        "delta": live_wer - batch_wer,
+        "live_text": live_text,
+        "batch_text": batch_text,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wav")
@@ -83,6 +107,18 @@ def main():
     print(f"  degraded         {d['degraded']}")
     verdict = "PASS" if d["duty_cycle"] < 0.8 and not d["degraded"] else "FAIL"
     print(f"  -> {verdict}")
+
+    ref_path = os.path.splitext(args.wav)[0] + ".txt"
+    if os.path.isfile(ref_path):
+        reference = open(ref_path, encoding="utf-8").read().strip()
+        a = measure_acceptance(model, args.wav, reference)
+        print(f"\nGATE 2  live against batch")
+        print(f"  batch WER        {a['batch_wer']:.4f}")
+        print(f"  live WER         {a['live_wer']:.4f}")
+        print(f"  delta            {a['delta']:+.4f}")
+        print(f"  -> {'PASS' if a['delta'] < 0.02 else 'FAIL'}")
+    else:
+        print(f"\nGATE 2 skipped: no reference at {ref_path}")
 
 
 if __name__ == "__main__":
