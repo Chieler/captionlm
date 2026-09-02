@@ -123,7 +123,10 @@
   .term{ font-size:var(--fs-micro); background:#f2f2f4; border-radius:5px; padding:2px 7px; }
 
   .transcript{ border:1px solid var(--line); border-radius:8px; overflow:hidden; max-height:420px; overflow-y:auto; }
-  .t-row{ display:grid; grid-template-columns:64px 1fr; padding:11px 14px; border-bottom:1px solid var(--line); font-size:var(--fs-base); }
+  /* 72px so an 8-character timecode in mono never overruns its own column,
+     then a gap so the caption does not start against it. */
+  .t-row{ display:grid; grid-template-columns:72px 1fr; gap:14px; padding:11px 14px;
+          border-bottom:1px solid var(--line); font-size:var(--fs-base); }
   .t-row:last-child{ border-bottom:none; }
   .t-row .tc{ color:var(--muted); }
   .strike{ text-decoration:line-through; color:#b3b3ba; margin-right:4px; }
