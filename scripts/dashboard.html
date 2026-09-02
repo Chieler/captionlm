@@ -273,8 +273,10 @@ function renderFiles(st) {
       `<div class="top"><span class="fname">${esc(f.name)}</span>` +
       `<span class="chip ${f.status}">${f.status === "working" ? esc(f.stage || "working") : f.status}</span>` +
       `<span class="x" data-del="${esc(f.name)}" title="Remove ${esc(f.name)}">&times;</span></div>` +
-      `<div class="fmeta${f.docs.length ? "" : " none"}">${mb(f.size)} · ` +
-      `${f.docs.length ? "biased by " + f.docs.map(esc).join(", ") : "no document — unbiased"}</div>` +
+      `<div class="fmeta${f.docs.length + f.shared.length ? "" : " none"}">${mb(f.size)} · ` +
+      `${f.docs.length + f.shared.length
+          ? "biased by " + f.docs.concat(f.shared).map(esc).join(", ")
+          : "no document — unbiased"}</div>` +
       (f.status === "working" ? bar(f) : "");
     b.onclick = () => { selected = f.name; render(st); };
     $("files").appendChild(b);
@@ -313,6 +315,17 @@ function renderCue(cue, changes) {
   return `<div class="t-row"><span class="tc mono">${esc(cue.time)}</span><span>${esc(cue.text)}</span></div>`;
 }
 
+/* Named documents bias this recording alone; shared ones bias every recording
+   in the drop-off. Saying which is which is the difference between a rule and
+   magic. */
+function sources(f) {
+  const all = f.docs.concat(f.shared);
+  if (!all.length) return "unbiased";
+  const shared = f.shared.length ? ` (${f.shared.map(esc).join(", ")} shared)` : "";
+  return f.docs.concat(f.shared).map(esc).join(", ") + shared +
+    " \u2192 " + (f.terms.length ? f.terms.length + "+ terms" : "terms");
+}
+
 function renderDetail(st) {
   const f = st.files.find((x) => x.name === selected) || st.files.find((x) => x.status === "working") || st.files[0];
   const d = $("detail");
@@ -324,7 +337,7 @@ function renderDetail(st) {
   d.innerHTML =
     (st.error ? `<div class="err">${esc(st.error)}</div>` : "") +
     `<div class="now"><div class="vname">${esc(f.name)}</div>` +
-    `<div class="vmeta">${mb(f.size)} · ${f.docs.length ? f.docs.map(esc).join(", ") + " → " + (f.terms.length ? f.terms.length + "+ terms" : "terms") : "unbiased"}` +
+    `<div class="vmeta">${mb(f.size)} · ${sources(f)}` +
     `${f.status === "done" && changes.length ? " · " + changes.length + " span" + (changes.length === 1 ? "" : "s") + " corrected by the second model" : ""}</div></div>` +
 
     (f.status === "working"

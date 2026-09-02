@@ -27,6 +27,20 @@ All three are read and their terms pooled. A document that could match two
 recordings goes to the longer name, so `standup-part2.txt` biases
 `standup-part2.m4a` rather than `standup.m4a`.
 
+A document that names **no** recording is shared -- it biases every recording
+in the drop-off:
+
+```
+dropoff/standup.m4a
+dropoff/retro.m4a
+dropoff/glossary.pdf     <- biases both
+dropoff/standup.txt      <- biases standup.m4a alone
+```
+
+Real documents are called `glossary.pdf`, not `standup.pdf`, and requiring
+the rename is a contract nobody keeps. Naming a document after a recording is
+what scopes it to that recording alone.
+
 Then, from the repo root, either the command line:
 
 ```bash

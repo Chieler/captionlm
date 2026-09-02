@@ -94,7 +94,7 @@ def test_a_document_with_no_recording_is_still_listed(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text("the drop-off's own instructions")
     monkeypatch.setattr(serve, "DROPOFF", str(tmp_path))
 
-    rows = [{"name": "standup.m4a", "docs": ["standup.txt"]}]
+    rows = [{"name": "standup.m4a", "docs": ["standup.txt"], "shared": []}]
     assert serve.strays(rows) == ["notes.txt"]
 
 
@@ -148,7 +148,7 @@ def test_captions_left_by_a_recording_removed_outside_the_ui_are_listed():
 
     serve.DROPOFF = d
     try:
-        rows = [{"name": "keep.wav", "docs": []}]
+        rows = [{"name": "keep.wav", "docs": [], "shared": []}]
         assert serve.strays(rows) == ["ghost.srt", "ghost.terms.txt"]
     finally:
         shutil.rmtree(d, ignore_errors=True)
@@ -165,7 +165,7 @@ def test_the_decoding_cache_of_a_gone_recording_is_swept_not_listed():
 
     serve.DROPOFF = d
     try:
-        assert serve.strays([{"name": "keep.m4a", "docs": []}]) == []
+        assert serve.strays([{"name": "keep.m4a", "docs": [], "shared": []}]) == []
         assert sorted(os.listdir(d)) == ["keep.converted.wav", "keep.m4a"]
     finally:
         shutil.rmtree(d, ignore_errors=True)

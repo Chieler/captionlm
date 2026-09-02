@@ -39,22 +39,31 @@ SEPARATORS = "-_. "
 # `standup.m4a`, `standup.converted.wav` as a recording of its own -- so a run
 # would feed its own output back in.
 GENERATED = (".terms.txt", ".converted.wav", ".srt")
+# The drop-off's own instructions. Harmless while an unmatched document was
+# ignored; once they are shared it would bias every recording toward this
+# repository's vocabulary.
+NOT_A_SOURCE = {"README.md"}
 
 
-def find_pairs(directory: str) -> list[tuple[str, list[str]]]:
-    """(audio, documents) for every audio file, matched by basename.
+def partition_documents(directory: str) -> tuple[dict[str, list[str]], list[str]]:
+    """Documents grouped by the recording they name, and the ones naming none.
 
-    A document matches a recording when its basename is the recording's, or
+    A document belongs to a recording when its basename is the recording's, or
     starts with it followed by a separator, so one recording can be biased by
     several documents at once: `standup.m4a` takes `standup.pdf`,
-    `standup-notes.txt` and `standup_slides.md` together. A document that
-    could match two recordings goes to the longer one, so `standup-part2.txt`
-    biases `standup-part2.m4a` and not `standup.m4a`.
+    `standup-notes.txt` and `standup_slides.md`. A document that could match
+    two recordings goes to the longer one, so `standup-part2.txt` biases
+    `standup-part2.m4a` and not `standup.m4a`.
+
+    A document matching no recording is shared: `glossary.pdf` was dropped in
+    to be used, and requiring it to be renamed after the recording is a
+    contract nobody keeps. Naming a document after a recording is what scopes
+    it to that one recording alone.
     """
     audio: dict[str, str] = {}
     docs: list[tuple[str, str]] = []
     for path in sorted(glob.glob(os.path.join(directory, "*"))):
-        if path.lower().endswith(GENERATED):
+        if path.lower().endswith(GENERATED) or os.path.basename(path) in NOT_A_SOURCE:
             continue
         base, ext = os.path.splitext(os.path.basename(path))
         ext = ext.lower()
@@ -63,15 +72,24 @@ def find_pairs(directory: str) -> list[tuple[str, list[str]]]:
         elif ext in DOC_EXTS:
             docs.append((base, path))
 
-    pairs: dict[str, tuple[str, list[str]]] = {b: (p, []) for b, p in audio.items()}
+    named: dict[str, list[str]] = {b: [] for b in audio}
+    shared: list[str] = []
     for base, path in docs:
         owners = [
             a for a in audio
             if base == a or (base.startswith(a) and base[len(a)] in SEPARATORS)
         ]
         if owners:
-            pairs[max(owners, key=len)][1].append(path)
-    return [(p, sorted(d)) for p, d in pairs.values()]
+            named[max(owners, key=len)].append(path)
+        else:
+            shared.append(path)
+    return {audio[b]: sorted(d) for b, d in named.items()}, sorted(shared)
+
+
+def find_pairs(directory: str) -> list[tuple[str, list[str]]]:
+    """(audio, every document that biases it) for every audio file."""
+    named, shared = partition_documents(directory)
+    return [(audio, sorted(docs + shared)) for audio, docs in named.items()]
 
 
 def main():

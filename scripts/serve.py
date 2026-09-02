@@ -31,7 +31,9 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from caption_dropoff import AUDIO_EXTS, DOC_EXTS, GENERATED, find_pairs  # noqa: E402
+from caption_dropoff import (  # noqa: E402
+    AUDIO_EXTS, DOC_EXTS, GENERATED, NOT_A_SOURCE, partition_documents,
+)
 
 from captionlm.biasable import extract_bias_terms  # noqa: E402
 from captionlm.biased_model import load_biased_model  # noqa: E402
@@ -94,14 +96,16 @@ def scan() -> list[dict]:
     model corrected is not recovered -- that is a note about the run that
     just happened, not a property of the output.
     """
+    named, shared = partition_documents(DROPOFF)
     rows = []
-    for audio, docs in sorted(find_pairs(DROPOFF)):
+    for audio, docs in sorted(named.items()):
         base = os.path.splitext(audio)[0]
         srt = _read(base + ".srt")
         rows.append(
             {
                 "name": os.path.basename(audio),
                 "docs": [os.path.basename(d) for d in docs],
+                "shared": [os.path.basename(d) for d in shared],
                 "size": os.path.getsize(audio),
                 "status": "done" if srt else "ready",
                 "stage": "",
@@ -117,18 +121,20 @@ def scan() -> list[dict]:
 def strays(rows: list[dict]) -> list[str]:
     """Files in the drop-off attached to no recording.
 
-    Two ways to get one. A document dropped without a recording of the same
-    name: `find_pairs` is keyed on audio, which is right for captioning -- a
-    lone document is nothing to transcribe -- but the UI builds its file list
-    from it, so the upload would otherwise land on disk and appear nowhere.
-    And captions left behind when a recording is removed outside this UI,
-    which are excluded from pairing and so would be invisible forever.
+    Two ways to get one. A document dropped when there is no recording at all
+    to share it with -- it is nothing to transcribe, so `partition_documents`
+    has nowhere to put it, and the upload would otherwise land on disk and
+    appear nowhere. And captions left behind when a recording is removed
+    outside this UI, which are excluded from pairing and so would be
+    invisible forever.
 
     `.converted.wav` is swept rather than listed. It is a decoding cache, it
     is the size of the recording, and it is rebuilt on demand. The `.srt` is
     the thing the user came for, so it is listed and never deleted for them.
     """
-    attached = {d for r in rows for d in r["docs"]} | {r["name"] for r in rows}
+    attached = ({d for r in rows for d in r["docs"]}
+                | {d for r in rows for d in r["shared"]}
+                | {r["name"] for r in rows})
     out = []
     for path in glob.glob(os.path.join(DROPOFF, "*")):
         name = os.path.basename(path)
@@ -137,7 +143,7 @@ def strays(rows: list[dict]) -> list[str]:
             if not any(r["name"].startswith(base + ".") for r in rows):
                 os.remove(path)
             continue
-        if name == "README.md" or name in attached:
+        if name in NOT_A_SOURCE or name in attached:
             continue
         stem = name[: -len(".terms.txt")] if name.endswith(".terms.txt") else os.path.splitext(name)[0]
         if name.endswith((".terms.txt", ".srt")):
@@ -174,7 +180,7 @@ def run_job(preset: str, want_second: bool) -> None:
             base = os.path.splitext(audio)[0]
 
             terms: list[str] = []
-            docs = row.get("docs") or []
+            docs = (row.get("docs") or []) + (row.get("shared") or [])
             if docs:
                 _set(row, status="working",
                      stage="reading document" if len(docs) == 1 else f"reading {len(docs)} documents",
@@ -297,6 +303,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     for row in fresh:
                         if row["name"] in known:
                             known[row["name"]]["docs"] = row["docs"]
+                            known[row["name"]]["shared"] = row["shared"]
                         else:
                             state["files"].append(row)
                     present = {r["name"] for r in fresh}
