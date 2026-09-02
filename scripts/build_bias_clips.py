@@ -14,7 +14,7 @@ the spotter's behaviour from term-extraction quality.
 Audio is never truncated: the .nlp files ship empty ts/endTs columns, so
 there is no way to cut a reference to match a shortened wav without
 introducing a boundary error, and at ~47x realtime full clips are cheap
-enough that the question never arises.
+enough that the question never arises. lol
 """
 import argparse
 import csv
