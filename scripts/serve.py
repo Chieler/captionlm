@@ -40,6 +40,7 @@ from captionlm.cli import result_to_srt  # noqa: E402
 from captionlm.config import MODEL_ID_110M, MODEL_ID_1_1B  # noqa: E402
 from captionlm.doc_import import extract_text  # noqa: E402
 from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion  # noqa: E402
+from captionlm.progressive import transcribe_progressive  # noqa: E402
 from captionlm.terms import build_context_graph, load_tokenizer  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -194,14 +195,20 @@ def run_job(preset: str, want_second: bool) -> None:
                 if not os.path.isfile(wav):
                     convert_to_wav(audio, wav)
 
-            _set(row, stage="transcribing", progress=0)
-            result = model.transcribe(
-                wav,
-                chunk_duration=120.0,
-                chunk_callback=lambda done, total, r=row: _set(
-                    r, progress=round(100 * done / total) if total else 0
-                ),
-            )
+            _set(row, stage="transcribing", progress=0, cues=[])
+
+            def partial(result, done, total, r=row, live=not want_second):
+                """Show the transcript as it is produced -- but only when it is
+                final. Under a second opinion these cues would be rewritten
+                once the other model has read the audio, and text that changes
+                under the reader is worse than text that arrives late."""
+                _set(
+                    r,
+                    progress=round(100 * done / total) if total else 0,
+                    **({"cues": _cues(result_to_srt(result))} if live else {}),
+                )
+
+            result = transcribe_progressive(model, wav, on_partial=partial)
             before = result.text
 
             changes: list[dict] = []

@@ -337,7 +337,12 @@ function renderDetail(st) {
 
     (cues.length
       ? `<div class="transcript">${cues.map((c) => renderCue(c, changes)).join("")}</div>`
-      : f.status === "done" ? "" : `<div class="empty">No captions yet. Press \u201CCaption everything\u201D.</div>`) +
+      : f.status === "done" ? ""
+      : f.status === "working"
+        ? `<div class="empty">${st.second_opinion
+            ? "Holding the transcript back until the second model has read the audio."
+            : "Transcribing\u2026"}</div>`
+        : `<div class="empty">No captions yet. Press \u201CCaption everything\u201D.</div>`) +
 
     (f.status === "done"
       ? `<div class="export"><a class="btn primary" href="/api/srt?name=${encodeURIComponent(f.name)}" download>Download .SRT</a></div>`

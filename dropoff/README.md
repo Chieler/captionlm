@@ -40,8 +40,11 @@ visible instead of buried in flags:
 venv/bin/python scripts/serve.py    # http://localhost:8756
 ```
 
-The UI drops files into this directory, shows real transcription progress,
-and marks the spans the second model corrected. The × next to a recording
+The UI drops files into this directory, shows the transcript arriving as it
+is produced, shows real transcription progress,
+and marks the spans the second model corrected. With `--second-opinion` on,
+the transcript is held back until the second model has read the audio --
+those cues would otherwise be rewritten under you. The × next to a recording
 or a stray file removes it from this directory, along with anything a run
 wrote for it. It runs one job at a time and binds loopback only.
 
