@@ -65,6 +65,3 @@ docs/        results/ is the measurement record; superpowers/ is plans and specs
 dropoff/     drop a recording and its document here
 data/        eval sets, results, corpora -- gitignored except read_aloud/
 ```
-# captionlm
-# captionlm
-# captionlm
