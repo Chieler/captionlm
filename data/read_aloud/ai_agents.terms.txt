@@ -1,0 +1,206 @@
+RAG
+model choice
+Google
+model context protocol
+MCP
+model family
+Retrieval
+model layer
+Anthropic
+narrow definition
+inference
+tuning
+OpenAI
+open weights
+boring
+open weights tier
+boring infrastructure
+original instruction
+chunking
+training hardware
+chunking strategy
+plausible tool
+Claude
+model context
+Cohere
+hard parts
+DeepSeek
+eliminates hallucination
+inference costs
+European
+infrastructure win
+fine tuning
+infrastructure wins
+Gemini
+labs shipping
+Grok
+labs shipping frontier
+Groq
+labs shipping frontier models
+Guardrails
+language model
+hallucination
+thought traces
+Hugging Face
+latency
+latency decision
+Llama
+local inference
+LoRA
+low latency
+Meta
+low rank
+Mistral
+low rank adaptation
+Nvidia
+memory cost
+Quantization
+plausible tool result
+RAG eliminates
+grounding problem
+shipping frontier
+agent benchmarks
+shipping frontier models
+agent tooling
+ships claude
+Alibaba
+ships gemini
+Alibaba ships
+tool design
+answers
+small european models
+Anthropic ships
+small model
+beautifully
+small pair
+benchmark
+tool description
+benchmark performance
+success rate
+benchmarks
+system prompt
+benchmarks measure
+task success
+bespoke
+task success rate
+captures
+task suite
+captures real
+search product
+catches
+practical consequence
+chat
+production performance
+commoditizing
+protocol layer
+consolidated
+quality curve
+cuts
+datasets
+tool server
+decides
+rank adaptation
+decoding
+tool result
+design catches
+real usage
+developer
+real value
+eliminates
+reasoning model
+embedding
+relevant documents
+embedding model
+reliable finding
+emits
+enterprise
+retrieval question
+enterprise search
+retrieval step
+evaluation harnesses
+tool output
+fabricates
+fetch
+fetch relevant
+fills
+capability decision
+fragmented
+weights tier
+freezes
+european models
+freshness
+boring infrastructure wins
+freshness problem
+boring infrastructure win
+genuinely
+genuinely unsolved
+grounding
+better tool design
+external tools
+harnesses
+better tool
+hiding
+honest
+honest metric
+imitate
+different company
+different product
+inference trivial
+context window
+instruction scrolls
+context protocol
+invest
+context management
+iterates
+distribution layer
+labs
+constant source
+laptop
+frontier models
+wrong tool
+latency decoding
+application layer
+layer captures
+anthropic ships claude
+matrices
+custom silicon
+model answers
+agent literature
+model fabricates
+agent benchmarks measure
+model retries
+narrower
+failure modes
+Ollama
+different point
+OpenAI ships
+augmented generation
+paste
+cost quality
+Perplexity
+plausible
+vector database
+dense open weights tier
+prompt
+dense open weights
+retries
+cost quality curve
+Retrieval augmented
+base weights
+routinely
+scrolls
+server
+small european
+silently
+standardize
+stick
+tooling
+suite
+throughput
+teams routinely
+unsolved
+tier
+local inference trivial
+unnecessary
+window fills
+dense open

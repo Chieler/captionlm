@@ -8,11 +8,12 @@ data/speech-datasets/
 data/static_assets/
 captionlm.egg-info/
 
-# read-aloud eval audio (recorded, not generated)
-data/read_aloud/*.wav
+# read-aloud eval: the .wav and the extracted term lists ARE tracked, so a
+# fresh clone can reproduce the read-aloud numbers without a manual file
+# transfer. The source video is not -- it is large and the .wav is derived
+# from it.
 data/read_aloud/*.m4a
 data/read_aloud/*.mp3
-data/read_aloud/*.terms.txt
 data/read_aloud/*.mp4
 
 # user drop-off: keep the README, ignore everything dropped in
