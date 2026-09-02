@@ -17,6 +17,7 @@ raw-body PUTs rather than multipart for the same reason: the browser sends
 Not hardened, and not meant to be: it binds loopback only, serves one
 directory, and runs one job at a time.
 """
+import glob
 import http.server
 import json
 import mimetypes
@@ -64,7 +65,8 @@ SCORES = {
 
 _lock = threading.Lock()
 _models: dict[str, tuple] = {}
-state: dict = {"running": False, "preset": "110m", "second_opinion": False, "files": [], "error": None}
+state: dict = {"running": False, "preset": "110m", "second_opinion": False, "files": [],
+               "unpaired": [], "error": None}
 
 
 def _get_model(model_id: str):
@@ -109,6 +111,24 @@ def scan() -> list[dict]:
             }
         )
     return rows
+
+
+def unpaired_docs(rows: list[dict]) -> list[str]:
+    """Documents in the drop-off with no recording of the same basename.
+
+    `find_pairs` is keyed on audio, which is right for captioning -- a lone
+    document is nothing to transcribe. But the UI builds its whole file list
+    from it, so without this a dropped document lands on disk and appears
+    nowhere at all, which reads as the upload having failed.
+    """
+    paired = {r["doc"] for r in rows if r["doc"]}
+    return sorted(
+        os.path.basename(p)
+        for p in glob.glob(os.path.join(DROPOFF, "*"))
+        if os.path.splitext(p)[1].lower() in DOC_EXTS
+        and os.path.basename(p) not in paired
+        and os.path.basename(p) != "README.md"  # the drop-off's own instructions
+    )
 
 
 def _set(row: dict, **kw) -> None:
@@ -248,6 +268,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             state["files"].append(row)
                     present = {r["name"] for r in scan()}
                     state["files"] = [r for r in state["files"] if r["name"] in present]
+                    state["unpaired"] = unpaired_docs(state["files"])
                 return self._json(
                     {**state, "scores": SCORES[(state["preset"], state["second_opinion"])],
                      "presets": PRESETS}

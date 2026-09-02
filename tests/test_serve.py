@@ -78,3 +78,18 @@ def test_a_job_that_throws_stops_the_row_it_died_on():
     assert state["files"][0]["status"] == "failed"
     assert state["files"][0]["progress"] == 0
     assert state["error"] and not state["running"]
+
+
+def test_a_document_with_no_recording_is_still_listed(tmp_path, monkeypatch):
+    # find_pairs is keyed on audio, so a lone document produces no row. Without
+    # this the file lands on disk and appears nowhere, which reads as a failed
+    # upload.
+    import serve
+
+    (tmp_path / "notes.txt").write_text("quorum, Paxos")
+    (tmp_path / "standup.txt").write_text("paired with the recording")
+    (tmp_path / "README.md").write_text("the drop-off's own instructions")
+    monkeypatch.setattr(serve, "DROPOFF", str(tmp_path))
+
+    rows = [{"name": "standup.m4a", "doc": "standup.txt"}]
+    assert serve.unpaired_docs(rows) == ["notes.txt"]

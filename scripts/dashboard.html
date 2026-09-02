@@ -84,6 +84,9 @@
   .chip.ready{ background:#f0f0f2; color:var(--muted); }
   .chip.working{ background:var(--accent-soft); color:var(--accent); }
   .chip.done{ background:var(--green-soft); color:var(--green); }
+  .waiting{ padding:10px 14px; color:var(--muted); font-size:var(--fs-micro);
+            border-top:1px solid var(--line); }
+  .waiting div{ margin-top:6px; }
   .chip.failed{ background:var(--red-soft); color:var(--red); }
 
   /* Both bars animate transform only. The indeterminate one runs for the whole
@@ -199,9 +202,14 @@ segment($("segCombo"), "second", (v) => { settings.second_opinion = v === "1"; p
 
 /* ---- upload ------------------------------------------------------------ */
 async function upload(files) {
+  const rejected = [];
   for (const f of files) {
-    await fetch("/api/upload?name=" + encodeURIComponent(f.name), { method: "PUT", body: f });
+    const r = await fetch("/api/upload?name=" + encodeURIComponent(f.name), {
+      method: "PUT", body: f,
+    }).then((x) => x.json());
+    if (r.error) rejected.push(r.error);
   }
+  if (rejected.length) alert(rejected.join("\n"));
   refresh();
 }
 const drop = $("drop");
@@ -245,6 +253,16 @@ function renderFiles(st) {
       (f.status === "working" ? bar(f) : "");
     b.onclick = () => { selected = f.name; render(st); };
     $("files").appendChild(b);
+  }
+  const waiting = st.unpaired || [];
+  if (waiting.length) {
+    const d = document.createElement("div");
+    d.className = "waiting";
+    d.innerHTML =
+      waiting.map((n) => `<span class="term">${esc(n)}</span>`).join("") +
+      `<div>${waiting.length === 1 ? "This document has" : "These documents have"} no recording ` +
+      `of the same name yet, so nothing is biased by ${waiting.length === 1 ? "it" : "them"}.</div>`;
+    $("files").appendChild(d);
   }
 }
 
