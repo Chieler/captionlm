@@ -84,6 +84,9 @@
   .chip.ready{ background:#f0f0f2; color:var(--muted); }
   .chip.working{ background:var(--accent-soft); color:var(--accent); }
   .chip.done{ background:var(--green-soft); color:var(--green); }
+  .x{ cursor:pointer; color:var(--muted); padding:0 4px; border-radius:4px; flex:none;
+      line-height:1; }
+  .x:hover{ background:var(--red-soft); color:var(--red); }
   .waiting{ padding:10px 14px; color:var(--muted); font-size:var(--fs-micro);
             border-top:1px solid var(--line); }
   .waiting div{ margin-top:6px; }
@@ -221,6 +224,21 @@ $("picker").addEventListener("change", (e) => upload(e.target.files));
   drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => upload(e.dataTransfer.files));
 
+/* Delegated so it covers rows and waiting documents alike, and survives the
+   re-render that the 700ms poll does underneath it. */
+document.addEventListener("click", async (e) => {
+  const x = e.target.closest("[data-del]");
+  if (!x) return;
+  e.stopPropagation();
+  const name = x.dataset.del;
+  if (!confirm(`Remove ${name} from the drop-off? Any captions written for it go too.`)) return;
+  const r = await fetch("/api/file?name=" + encodeURIComponent(name), { method: "DELETE" })
+    .then((res) => res.json());
+  if (r.error) alert(r.error);
+  if (name === selected) selected = null;
+  refresh();
+});
+
 $("run").addEventListener("click", async () => {
   const r = await fetch("/api/run", { method: "POST", body: "{}" }).then((x) => x.json());
   if (r.error) alert(r.error);
@@ -248,8 +266,10 @@ function renderFiles(st) {
     b.setAttribute("aria-selected", String(f.name === selected));
     b.innerHTML =
       `<div class="top"><span class="fname">${esc(f.name)}</span>` +
-      `<span class="chip ${f.status}">${f.status === "working" ? esc(f.stage || "working") : f.status}</span></div>` +
-      `<div class="fmeta${f.doc ? "" : " none"}">${mb(f.size)} · ${f.doc ? "biased by " + esc(f.doc) : "no document — unbiased"}</div>` +
+      `<span class="chip ${f.status}">${f.status === "working" ? esc(f.stage || "working") : f.status}</span>` +
+      `<span class="x" data-del="${esc(f.name)}" title="Remove ${esc(f.name)}">&times;</span></div>` +
+      `<div class="fmeta${f.docs.length ? "" : " none"}">${mb(f.size)} · ` +
+      `${f.docs.length ? "biased by " + f.docs.map(esc).join(", ") : "no document — unbiased"}</div>` +
       (f.status === "working" ? bar(f) : "");
     b.onclick = () => { selected = f.name; render(st); };
     $("files").appendChild(b);
@@ -259,7 +279,9 @@ function renderFiles(st) {
     const d = document.createElement("div");
     d.className = "waiting";
     d.innerHTML =
-      waiting.map((n) => `<span class="term">${esc(n)}</span>`).join("") +
+      waiting.map((n) =>
+        `<span class="term">${esc(n)}<span class="x" data-del="${esc(n)}" ` +
+        `title="Remove ${esc(n)}">&times;</span></span>`).join("") +
       `<div>${waiting.length === 1 ? "This document has" : "These documents have"} no recording ` +
       `of the same name yet, so nothing is biased by ${waiting.length === 1 ? "it" : "them"}.</div>`;
     $("files").appendChild(d);
@@ -297,7 +319,7 @@ function renderDetail(st) {
   d.innerHTML =
     (st.error ? `<div class="err">${esc(st.error)}</div>` : "") +
     `<div class="now"><div class="vname">${esc(f.name)}</div>` +
-    `<div class="vmeta">${mb(f.size)} · ${f.doc ? esc(f.doc) + " → " + (f.terms.length ? f.terms.length + "+ terms" : "terms") : "unbiased"}` +
+    `<div class="vmeta">${mb(f.size)} · ${f.docs.length ? f.docs.map(esc).join(", ") + " → " + (f.terms.length ? f.terms.length + "+ terms" : "terms") : "unbiased"}` +
     `${f.status === "done" && changes.length ? " · " + changes.length + " span" + (changes.length === 1 ? "" : "s") + " corrected by the second model" : ""}</div></div>` +
 
     (f.status === "working"

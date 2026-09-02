@@ -31,7 +31,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from caption_dropoff import AUDIO_EXTS, DOC_EXTS, find_pairs  # noqa: E402
+from caption_dropoff import AUDIO_EXTS, DOC_EXTS, GENERATED, find_pairs  # noqa: E402
 
 from captionlm.biasable import extract_bias_terms  # noqa: E402
 from captionlm.biased_model import load_biased_model  # noqa: E402
@@ -94,13 +94,13 @@ def scan() -> list[dict]:
     just happened, not a property of the output.
     """
     rows = []
-    for audio, doc in sorted(find_pairs(DROPOFF)):
+    for audio, docs in sorted(find_pairs(DROPOFF)):
         base = os.path.splitext(audio)[0]
         srt = _read(base + ".srt")
         rows.append(
             {
                 "name": os.path.basename(audio),
-                "doc": os.path.basename(doc) if doc else None,
+                "docs": [os.path.basename(d) for d in docs],
                 "size": os.path.getsize(audio),
                 "status": "done" if srt else "ready",
                 "stage": "",
@@ -121,13 +121,14 @@ def unpaired_docs(rows: list[dict]) -> list[str]:
     from it, so without this a dropped document lands on disk and appears
     nowhere at all, which reads as the upload having failed.
     """
-    paired = {r["doc"] for r in rows if r["doc"]}
+    paired = {d for r in rows for d in r["docs"]}
     return sorted(
         os.path.basename(p)
         for p in glob.glob(os.path.join(DROPOFF, "*"))
         if os.path.splitext(p)[1].lower() in DOC_EXTS
         and os.path.basename(p) not in paired
         and os.path.basename(p) != "README.md"  # the drop-off's own instructions
+        and not p.lower().endswith(GENERATED)
     )
 
 
@@ -157,10 +158,13 @@ def run_job(preset: str, want_second: bool) -> None:
             base = os.path.splitext(audio)[0]
 
             terms: list[str] = []
-            doc = row.get("doc")
-            if doc:
-                _set(row, status="working", stage="reading document", progress=0)
-                terms = extract_bias_terms(extract_text(os.path.join(DROPOFF, doc)))
+            docs = row.get("docs") or []
+            if docs:
+                _set(row, status="working",
+                     stage="reading document" if len(docs) == 1 else f"reading {len(docs)} documents",
+                     progress=0)
+                text = "\n\n".join(extract_text(os.path.join(DROPOFF, d)) for d in docs)
+                terms = extract_bias_terms(text)
                 with open(base + ".terms.txt", "w", encoding="utf-8") as f:
                     f.write("\n".join(terms) + "\n")
                 model.context_graph = build_context_graph(terms, tokenizer, blank_idx)
@@ -262,11 +266,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/api/state":
             with _lock:
                 if not state["running"]:
+                    # Rows are kept rather than rebuilt, because they carry the
+                    # last run's cues and corrections. Their document list is
+                    # not a property of that run though -- dropping a document
+                    # next to a recording already on the list has to show up.
+                    fresh = scan()
                     known = {r["name"]: r for r in state["files"]}
-                    for row in scan():
-                        if row["name"] not in known:
+                    for row in fresh:
+                        if row["name"] in known:
+                            known[row["name"]]["docs"] = row["docs"]
+                        else:
                             state["files"].append(row)
-                    present = {r["name"] for r in scan()}
+                    present = {r["name"] for r in fresh}
                     state["files"] = [r for r in state["files"] if r["name"] in present]
                     state["unpaired"] = unpaired_docs(state["files"])
                 return self._json(
@@ -298,6 +309,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(os.path.join(DROPOFF, name), "wb") as f:
             f.write(data)
         return self._json({"ok": True, "name": name})
+
+    def do_DELETE(self):
+        """Remove one dropped file, and anything a run wrote next to it.
+
+        Leaving the .srt/.terms.txt/.converted.wav behind means re-dropping a
+        recording of the same name shows the previous run's captions.
+        """
+        url = urllib.parse.urlparse(self.path)
+        if url.path != "/api/file":
+            return self._json({"error": "no such endpoint"}, 404)
+
+        name = os.path.basename(urllib.parse.parse_qs(url.query).get("name", [""])[0])
+        if not name or os.path.splitext(name)[1].lower() not in AUDIO_EXTS | DOC_EXTS:
+            return self._json({"error": f"{name!r} is not an audio or document file"}, 400)
+
+        with _lock:
+            if state["running"]:
+                return self._json({"error": "a job is running; wait for it to finish"}, 409)
+
+        path = os.path.join(DROPOFF, name)
+        if not os.path.isfile(path):
+            return self._json({"error": f"{name!r} is not in the drop-off"}, 404)
+
+        removed = []
+        base = os.path.splitext(path)[0]
+        for victim in [path] + [base + suffix for suffix in GENERATED]:
+            if os.path.isfile(victim):
+                os.remove(victim)
+                removed.append(os.path.basename(victim))
+        with _lock:
+            state["files"] = [r for r in state["files"] if r["name"] != name]
+        return self._json({"ok": True, "removed": removed})
 
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)

@@ -12,6 +12,21 @@ dropoff/standup.m4a      <- the recording
 dropoff/standup.pdf      <- the document it is about
 ```
 
+Several documents can bias one recording. A document belongs to a
+recording when its basename is the recording's, or starts with it followed
+by `-`, `_`, `.` or a space:
+
+```
+dropoff/standup.m4a
+dropoff/standup.pdf
+dropoff/standup-notes.txt
+dropoff/standup_slides.md
+```
+
+All three are read and their terms pooled. A document that could match two
+recordings goes to the longer name, so `standup-part2.txt` biases
+`standup-part2.m4a` rather than `standup.m4a`.
+
 Then, from the repo root, either the command line:
 
 ```bash
@@ -26,8 +41,9 @@ venv/bin/python scripts/serve.py    # http://localhost:8756
 ```
 
 The UI drops files into this directory, shows real transcription progress,
-and marks the spans the second model corrected. It runs one job at a time
-and binds loopback only.
+and marks the spans the second model corrected. The × next to a recording
+or a waiting document removes it from this directory, along with anything a
+run wrote for it. It runs one job at a time and binds loopback only.
 
 You get:
 

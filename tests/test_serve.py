@@ -1,5 +1,8 @@
 import os
+import shutil
 import sys
+import tempfile
+import urllib.parse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
@@ -91,5 +94,80 @@ def test_a_document_with_no_recording_is_still_listed(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text("the drop-off's own instructions")
     monkeypatch.setattr(serve, "DROPOFF", str(tmp_path))
 
-    rows = [{"name": "standup.m4a", "doc": "standup.txt"}]
+    rows = [{"name": "standup.m4a", "docs": ["standup.txt"]}]
     assert serve.unpaired_docs(rows) == ["notes.txt"]
+
+
+def test_several_documents_can_bias_one_recording(tmp_path):
+    # One recording, three source documents. Before this, find_pairs held a
+    # single document per basename and the other two were silently dropped.
+    from caption_dropoff import find_pairs
+
+    for name in ("standup.m4a", "standup.txt", "standup-notes.md", "standup_slides.csv"):
+        (tmp_path / name).write_text("x")
+    audio, docs = find_pairs(str(tmp_path))[0]
+
+    assert os.path.basename(audio) == "standup.m4a"
+    assert [os.path.basename(d) for d in docs] == [
+        "standup-notes.md", "standup.txt", "standup_slides.csv"
+    ]
+
+
+def test_a_document_goes_to_the_longest_recording_it_could_match(tmp_path):
+    from caption_dropoff import find_pairs
+
+    for name in ("standup.m4a", "standup-part2.m4a", "standup-part2.txt"):
+        (tmp_path / name).write_text("x")
+    got = {os.path.basename(a): [os.path.basename(d) for d in ds] for a, ds in find_pairs(str(tmp_path))}
+
+    assert got == {"standup.m4a": [], "standup-part2.m4a": ["standup-part2.txt"]}
+
+
+def test_a_run_does_not_feed_its_own_output_back_in(tmp_path):
+    # standup.terms.txt reads as a document for standup.m4a, and
+    # standup.converted.wav as a recording of its own.
+    from caption_dropoff import find_pairs
+
+    for name in ("standup.m4a", "standup.terms.txt", "standup.converted.wav", "standup.srt"):
+        (tmp_path / name).write_text("x")
+    pairs = find_pairs(str(tmp_path))
+
+    assert [(os.path.basename(a), ds) for a, ds in pairs] == [("standup.m4a", [])]
+
+
+def test_deleting_a_recording_takes_its_generated_files_with_it():
+    # Leaving them behind means re-dropping a recording of the same name shows
+    # the previous run's captions.
+    import serve
+
+    d = tempfile.mkdtemp()
+    for suffix in (".wav", ".srt", ".terms.txt", ".converted.wav"):
+        open(os.path.join(d, "standup" + suffix), "w").write("x")
+    open(os.path.join(d, "keep.wav"), "w").write("x")
+
+    serve.DROPOFF = d
+    try:
+        code, body = _delete(serve, "standup.wav")
+        assert code == 200 and body["ok"]
+        assert sorted(os.listdir(d)) == ["keep.wav"]
+
+        assert _delete(serve, "../../SETUP.md")[0] == 404      # traversal
+        assert _delete(serve, "evil.sh")[0] == 400             # not an audio or document
+        assert _delete(serve, "gone.wav")[0] == 404
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _delete(serve, name):
+    """Drive Handler.do_DELETE without a socket."""
+    captured = {}
+
+    class Fake(serve.Handler):
+        def __init__(self):
+            self.path = "/api/file?name=" + urllib.parse.quote(name)
+
+        def _json(self, obj, code=200):
+            captured["code"], captured["body"] = code, obj
+
+    Fake().do_DELETE()
+    return captured["code"], captured["body"]

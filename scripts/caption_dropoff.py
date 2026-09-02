@@ -33,17 +33,45 @@ AUDIO_EXTS = {".mp3", ".mp4", ".m4a", ".wav", ".mov", ".aac", ".flac", ".ogg", "
 DOC_EXTS = {".txt", ".md", ".pdf", ".docx", ".doc", ".csv", ".rtf", ".html"}
 
 
-def find_pairs(directory: str) -> list[tuple[str, str | None]]:
-    """(audio, document-or-None) for every audio file, matched by basename."""
-    by_base: dict[str, dict[str, str]] = {}
+SEPARATORS = "-_. "
+# What this script writes next to a recording. They sit in the drop-off looking
+# exactly like inputs -- `standup.terms.txt` reads as a document for
+# `standup.m4a`, `standup.converted.wav` as a recording of its own -- so a run
+# would feed its own output back in.
+GENERATED = (".terms.txt", ".converted.wav", ".srt")
+
+
+def find_pairs(directory: str) -> list[tuple[str, list[str]]]:
+    """(audio, documents) for every audio file, matched by basename.
+
+    A document matches a recording when its basename is the recording's, or
+    starts with it followed by a separator, so one recording can be biased by
+    several documents at once: `standup.m4a` takes `standup.pdf`,
+    `standup-notes.txt` and `standup_slides.md` together. A document that
+    could match two recordings goes to the longer one, so `standup-part2.txt`
+    biases `standup-part2.m4a` and not `standup.m4a`.
+    """
+    audio: dict[str, str] = {}
+    docs: list[tuple[str, str]] = []
     for path in sorted(glob.glob(os.path.join(directory, "*"))):
+        if path.lower().endswith(GENERATED):
+            continue
         base, ext = os.path.splitext(os.path.basename(path))
         ext = ext.lower()
         if ext in AUDIO_EXTS:
-            by_base.setdefault(base, {})["audio"] = path
+            audio[base] = path
         elif ext in DOC_EXTS:
-            by_base.setdefault(base, {})["doc"] = path
-    return [(v["audio"], v.get("doc")) for v in by_base.values() if "audio" in v]
+            docs.append((base, path))
+
+    pairs: dict[str, tuple[str, list[str]]] = {b: (p, []) for b, p in audio.items()}
+    for base, path in docs:
+        owners = [
+            a for a in audio
+            if base == a or (base.startswith(a) and base[len(a)] in SEPARATORS)
+        ]
+        if owners:
+            pairs[max(owners, key=len)][1].append(path)
+    return [(p, sorted(d)) for p, d in pairs.values()]
 
 
 def main():
@@ -80,16 +108,18 @@ def main():
     if args.cb_weight is not None:
         model.spotter_config.cb_weight = args.cb_weight
 
-    for audio, doc in pairs:
+    for audio, docs in pairs:
         base = os.path.splitext(audio)[0]
         print(f"\n=== {os.path.basename(audio)} ===")
 
         terms: list[str] = []
-        if doc:
-            terms = extract_bias_terms(extract_text(doc), mode=args.mode, top_n=args.top_n)
+        if docs:
+            text = "\n\n".join(extract_text(d) for d in docs)
+            terms = extract_bias_terms(text, mode=args.mode, top_n=args.top_n)
             with open(f"{base}.terms.txt", "w", encoding="utf-8") as f:
                 f.write("\n".join(terms) + "\n")
-            print(f"  {len(terms)} terms from {os.path.basename(doc)} -> {os.path.basename(base)}.terms.txt")
+            named = ", ".join(os.path.basename(d) for d in docs)
+            print(f"  {len(terms)} terms from {named} -> {os.path.basename(base)}.terms.txt")
             print(f"    {', '.join(terms[:10])}{' ...' if len(terms) > 10 else ''}")
             model.context_graph = build_context_graph(terms, tokenizer, blank_idx)
         else:
