@@ -332,8 +332,8 @@ def main():
         description="Assemble an eval clip set from a cloned Earnings-21 directory + live SEC EDGAR"
     )
     parser.add_argument("earnings21_dir", help="Path to the cloned earnings21/ directory")
-    parser.add_argument("--out", default="eval_data/clips", help="Output clip directory")
-    parser.add_argument("--terms-out", default="eval_data/terms.txt", help="Combined term list output path")
+    parser.add_argument("--out", default="data/eval_data/clips", help="Output clip directory")
+    parser.add_argument("--terms-out", default="data/eval_data/terms.txt", help="Combined term list output path")
     parser.add_argument("--limit", type=int, default=5, help="Max number of clips to successfully assemble")
     parser.add_argument(
         "--max-attempts", type=int, default=20, help="Max number of rows to process (successes + skips)"

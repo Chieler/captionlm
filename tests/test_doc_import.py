@@ -6,6 +6,7 @@ from captionlm.doc_import import extract_text
 
 FIXTURE = (
     Path(__file__).parent.parent
+    / "data"
     / "static_assets"
     / "Philo_Homes_Organization_Structure_Proposal.docx"
 )

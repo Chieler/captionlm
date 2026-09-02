@@ -68,7 +68,7 @@ def extract_text(path: str, max_length: int = 50_000) -> str:
 
 
 if __name__ == "__main__":
-    static_assets_dir = os.path.join(os.path.dirname(__file__), "..", "static_assets")
+    static_assets_dir = os.path.join(os.path.dirname(__file__), "..", "data", "static_assets")
     for asset in os.listdir(static_assets_dir):
         p = os.path.join(static_assets_dir, asset)
         print(p, extract_text(p))

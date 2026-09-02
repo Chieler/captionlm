@@ -45,17 +45,17 @@ re-read the whole sentence; leave the audio uncut.
 Save each recording next to its script, same basename:
 
 ```
-read_aloud/ai_agents.txt          read_aloud/ai_agents.wav
-read_aloud/distributed_systems.txt   read_aloud/distributed_systems.wav
+data/read_aloud/ai_agents.txt          data/read_aloud/ai_agents.wav
+data/read_aloud/distributed_systems.txt   data/read_aloud/distributed_systems.wav
 ```
 
 Any format ffmpeg reads is fine; convert to what the model wants with:
 
 ```bash
-ffmpeg -i ai_agents.m4a -ar 16000 -ac 1 read_aloud/ai_agents.wav
+ffmpeg -i ai_agents.m4a -ar 16000 -ac 1 data/read_aloud/ai_agents.wav
 ```
 
-`read_aloud/` is then a valid clip directory for both `captionlm/eval.py`
+`data/read_aloud/` is then a valid clip directory for both `captionlm/eval.py`
 and `scripts/sweep_cb_weight.py` with no further glue — `load_clips`
 pairs `<name>.wav` with `<name>.txt` and picks up an optional
 `<name>.terms.txt`.
@@ -65,12 +65,12 @@ pairs `<name>.wav` with `<name>.txt` and picks up an optional
 Extract a term list per document, then sweep:
 
 ```bash
-PYTHONPATH=. venv/bin/python scripts/extract_terms.py \
-  read_aloud/ai_agents.txt --mode combined --out /tmp/ai.txt
-PYTHONPATH=. venv/bin/python scripts/extract_terms.py \
-  read_aloud/distributed_systems.txt --mode combined --out /tmp/ds.txt
+venv/bin/python scripts/extract_terms.py \
+  data/read_aloud/ai_agents.txt --mode combined --out /tmp/ai.txt
+venv/bin/python scripts/extract_terms.py \
+  data/read_aloud/distributed_systems.txt --mode combined --out /tmp/ds.txt
 
-PYTHONPATH=. venv/bin/python scripts/sweep_cb_weight.py read_aloud \
+venv/bin/python scripts/sweep_cb_weight.py data/read_aloud \
   --condition ai=/tmp/ai.txt --condition ds=/tmp/ds.txt \
   --score-terms /tmp/ai.txt --weights 0.25,0.5,1.0,2.0
 ```

@@ -2,19 +2,18 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
-vendor_data/
-eval_data/
-static_assets/
-speech-datasets/
-eval_results/
+data/eval_data/
+data/eval_results/
+data/speech-datasets/
+data/static_assets/
+captionlm.egg-info/
 
 # read-aloud eval audio (recorded, not generated)
-read_aloud/*.wav
-read_aloud/*.m4a
-read_aloud/*.mp3
-read_aloud/*.terms.txt
-eval_results_sweep.log
-read_aloud/*.mp4
+data/read_aloud/*.wav
+data/read_aloud/*.m4a
+data/read_aloud/*.mp3
+data/read_aloud/*.terms.txt
+data/read_aloud/*.mp4
 
 # user drop-off: keep the README, ignore everything dropped in
 dropoff/*

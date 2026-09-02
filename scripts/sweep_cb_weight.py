@@ -70,7 +70,7 @@ def main():
         help="Term list used for F-score in EVERY condition, so results are comparable",
     )
     parser.add_argument("--weights", default="0.5,1.0,1.5,2.0,3.0")
-    parser.add_argument("--out-dir", default="eval_results")
+    parser.add_argument("--out-dir", default="data/eval_results")
     parser.add_argument("--model", default=MODEL_ID)
     args = parser.parse_args()
 

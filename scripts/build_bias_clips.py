@@ -48,7 +48,7 @@ def build_clip(earnings21_dir: str, file_id: str, out_dir: str) -> bool:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("earnings21_dir", help="Path to the cloned earnings21/ directory")
-    parser.add_argument("--out", default="eval_data/bias_clips")
+    parser.add_argument("--out", default="data/eval_data/bias_clips")
     parser.add_argument("--limit", type=int, default=None, help="Max clips to build")
     parser.add_argument(
         "--all",

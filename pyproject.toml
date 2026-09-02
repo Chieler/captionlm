@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "captionlm"
+version = "0.1.0"
+description = "Domain-biased captioning on Apple silicon"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+packages = ["captionlm", "captionlm.vendor"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

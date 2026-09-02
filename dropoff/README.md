@@ -15,14 +15,14 @@ dropoff/standup.pdf      <- the document it is about
 Then, from the repo root, either the command line:
 
 ```bash
-PYTHONPATH=. venv/bin/python scripts/caption_dropoff.py
+venv/bin/python scripts/caption_dropoff.py
 ```
 
 or the browser, which does the same work with the two quality choices
 visible instead of buried in flags:
 
 ```bash
-PYTHONPATH=. venv/bin/python scripts/serve.py    # http://localhost:8756
+venv/bin/python scripts/serve.py    # http://localhost:8756
 ```
 
 The UI drops files into this directory, shows real transcription progress,
@@ -52,7 +52,7 @@ with, and diff the two `.srt` files.
 
 ```bash
 # the larger model: better on ordinary words, 4 GB download, ~2x slower
-PYTHONPATH=. venv/bin/python scripts/caption_dropoff.py \
+venv/bin/python scripts/caption_dropoff.py \
   --model mlx-community/parakeet-tdt_ctc-1.1b
 
 # ask a second, independent model and let it correct the spans the two

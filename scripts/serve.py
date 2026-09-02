@@ -1,6 +1,6 @@
 """Local web UI for the drop-off pipeline.
 
-    PYTHONPATH=. venv/bin/python scripts/serve.py
+    venv/bin/python scripts/serve.py
     open http://localhost:8756
 
 Same work `caption_dropoff.py` does, driven from a browser instead of a
@@ -42,7 +42,7 @@ from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion  # no
 from captionlm.terms import build_context_graph, load_tokenizer  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE = os.path.join(ROOT, "05-canon-dashboard.html")
+PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
 DROPOFF = os.path.join(ROOT, "dropoff")
 PORT = int(os.environ.get("CAPTIONLM_PORT", "8756"))
 
