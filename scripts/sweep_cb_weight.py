@@ -45,6 +45,17 @@ from captionlm.terms import load_term_list, load_tokenizer
 PER_CLIP = "per-clip"
 
 
+def _split(stats: dict) -> str:
+    """B-WER/U-WER: errors on term-list words against errors on the rest.
+    The pair is the point of the sweep -- overall WER cannot separate a
+    weight that recovers terms from one that rewrites correct ordinary
+    words, because listed words are a minority of the words and the two
+    effects cancel in the aggregate."""
+    b = "n/a" if stats["b_wer"] is None else f"{stats['b_wer']:.4f}"
+    u = "n/a" if stats["u_wer"] is None else f"{stats['u_wer']:.4f}"
+    return f"B={b} U={u}"
+
+
 def _rate(stats: dict) -> str:
     """Injection rate: listed-but-unspoken terms that got transcribed anyway.
     Rises when biasing starts hallucinating the term list; "n/a" means the
@@ -106,9 +117,11 @@ def main():
 
     base_stats = score(clips, baseline, baseline, score_terms)["baseline"]
     print(
-        f"\nbaseline: WER={base_stats['wer']:.4f} P={base_stats['precision']:.4f} "
+        f"\nbaseline: WER={base_stats['wer']:.4f} {_split(base_stats)} "
+        f"P={base_stats['precision']:.4f} "
         f"R={base_stats['recall']:.4f} F={base_stats['fscore']:.4f} "
-        f"inject={_rate(base_stats)}\n"
+        f"inject={_rate(base_stats)}  "
+        f"[{base_stats['b_words']} listed / {base_stats['u_words']} other words]\n"
     )
 
     rows = []
@@ -140,6 +153,7 @@ def main():
                 )
             print(
                 f"{name:<12} cb={weight:<4} WER={b['wer']:.4f} ({row['wer_delta']:+.4f})  "
+                f"{_split(b)}  "
                 f"P={b['precision']:.4f} R={b['recall']:.4f} F={b['fscore']:.4f} "
                 f"({row['fscore_delta']:+.4f})  inject={_rate(b)}  "
                 f"net={stats['yield']['net_term_gain']:+d}  "
