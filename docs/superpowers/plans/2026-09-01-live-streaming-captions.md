@@ -57,7 +57,6 @@ Create `tests/test_live.py`:
 What matters here is not the acoustics -- that is the library's -- but that a
 word is shown once, never revised, and never silently dropped.
 """
-import mlx.core as mx
 import numpy as np
 import pytest
 from parakeet_mlx.alignment import AlignedToken, sentences_to_result, tokens_to_sentences
@@ -107,63 +106,83 @@ def test_nothing_commits_before_the_first_interval(session):
 
 def test_only_words_older_than_the_horizon_commit(session):
     # 10s of audio, 4s horizon: tokens ending at or before 6.0 commit.
-    session.add_audio(_silence(10.0))
-    assert [t.text for t in session.add_audio(_silence(0.0))] == []  # no new audio, no pass
-    committed = session._decode()
+    # add_audio decodes on the spot here -- 10s is well past the interval.
+    committed = session.add_audio(_silence(10.0))
     assert [t.text.strip() for t in committed] == ["w0", "w1", "w2", "w3", "w4", "w5"]
     assert session.committed_until == 6.0
 
 
 def test_a_word_is_never_committed_twice(session):
-    session.add_audio(_silence(10.0))
-    first = session._decode()
-    second = session._decode()
-    assert first and second == []
-    session.add_audio(_silence(4.0))
-    third = session._decode()
-    assert {t.text for t in third}.isdisjoint({t.text for t in first})
+    first = session.add_audio(_silence(10.0))
+    later = session.add_audio(_silence(4.0))
+    assert first and later
+    assert {t.text for t in later}.isdisjoint({t.text for t in first})
 
 
-def test_commits_are_monotonic_in_time(session):
+def test_commits_are_monotonic_and_never_repeat(session):
     seen = []
     for _ in range(6):
         seen += session.add_audio(_silence(3.0))
     starts = [t.start for t in seen]
     assert starts == sorted(starts)
+    assert len(starts) == len(set(starts))
 
 
 def test_a_token_straddling_the_commit_point_is_dropped_not_duplicated(session):
-    # Force committed_until into the middle of token w5.
-    session.add_audio(_silence(10.0))
-    session._decode()
-    session.committed_until = 5.5
-    again = session._decode()
+    session.add_audio(_silence(10.0))     # commits through 6.0
+    session.committed_until = 5.5         # pretend it landed mid-token
+    again = session.add_audio(_silence(4.0))
+    assert again                          # it still emits
     assert all(t.start >= 5.5 for t in again)
 
 
 def test_finish_flushes_the_tail(session):
-    session.add_audio(_silence(10.0))
-    session._decode()
+    session.add_audio(_silence(10.0))     # commits w0..w5
     tail = session.finish()
     assert [t.text.strip() for t in tail] == ["w6", "w7", "w8", "w9"]
 
 
-def test_audio_older_than_the_window_is_force_committed_not_lost(session):
-    # 40s of audio into a 30s window with no decode in between: the first 10s
-    # would fall off the back uncommitted.
-    session.add_audio(_silence(40.0))
-    committed = session._decode()
-    assert session.degraded is True
-    assert committed[0].start == 0.0          # the oldest audio still came out
-    assert session.committed_until >= 10.0
+def test_a_long_delivery_is_decoded_before_it_is_trimmed(session):
+    # 40s arriving at once into a 30s window. The oldest 10s must be decoded
+    # rather than trimmed away unheard.
+    committed = session.add_audio(_silence(40.0))
+    assert committed[0].text.strip() == "w0"
+    assert len(session._buffer) <= 30 * RATE
 
 
-def test_a_slow_decode_raises_the_interval(session, monkeypatch):
-    clock = iter([0.0, 3.0])  # a pass that took 3s of wall time
-    monkeypatch.setattr(live.time, "monotonic", lambda: next(clock))
+def test_a_gap_in_the_buffer_is_reported_rather_than_hidden(session):
+    # The guard for audio discarded before any pass committed it. Reaching it
+    # requires forcing the state, which is the point -- it should not happen.
     session.add_audio(_silence(10.0))
+    session._buffer_start = 20.0
+    session.committed_until = 5.0
     session._decode()
-    assert session.interval == 2.0  # capped at horizon / 2
+    assert session.degraded is True
+    assert session.committed_until >= 20.0
+
+
+def test_a_slow_pass_slows_the_cadence_and_says_so(monkeypatch):
+    monkeypatch.setattr(live, "get_logmel", lambda audio, cfg: len(audio) // RATE)
+    ticks = [0.0, 3.0]                    # one pass costing 3s of wall time
+    monkeypatch.setattr(live, "_now", lambda: ticks.pop(0) if ticks else 3.0)
+    s = live.LiveSession(FakeModel(), window=30.0, horizon=8.0, interval=2.0)
+
+    s.add_audio(_silence(10.0))
+    assert s.interval == 3.0               # raised to the decode cost, under the 4.0 ceiling
+    assert s.degraded is True
+
+
+def test_a_recovered_session_returns_to_its_configured_cadence(monkeypatch):
+    monkeypatch.setattr(live, "get_logmel", lambda audio, cfg: len(audio) // RATE)
+    ticks = [0.0, 3.0]                     # slow pass, then instant ones
+    monkeypatch.setattr(live, "_now", lambda: ticks.pop(0) if ticks else 3.0)
+    s = live.LiveSession(FakeModel(), window=30.0, horizon=8.0, interval=2.0)
+
+    s.add_audio(_silence(10.0))
+    for _ in range(3):
+        s.add_audio(_silence(5.0))
+    assert s.interval == 2.0
+    assert s.degraded is False
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -198,6 +217,12 @@ import numpy as np
 from parakeet_mlx.alignment import AlignedToken
 from parakeet_mlx.audio import get_logmel
 from parakeet_mlx.parakeet import DecodingConfig
+
+
+def _now() -> float:
+    """Wall clock, as a module-level seam so a test can replace it without
+    patching the global `time` module out from under pytest."""
+    return time.monotonic()
 
 
 class LiveSession:
@@ -240,7 +265,14 @@ class LiveSession:
         frames = np.asarray(frames, dtype=np.float32).reshape(-1)
         self._buffer = np.concatenate([self._buffer, frames])
         self._received += len(frames)
-        if self.now - self._last_decode < self.interval:
+
+        # Decoding on schedule is the normal path. Decoding because the buffer
+        # outgrew the window is the safety one: trimming only happens after a
+        # pass, so without this a session whose interval had been raised would
+        # accumulate audio without bound, and a single long delivery would be
+        # trimmed before anything had read it.
+        overfull = len(self._buffer) > self.window * self._rate
+        if not overfull and self.now - self._last_decode < self.interval:
             return []
         return self._decode()
 
@@ -252,10 +284,10 @@ class LiveSession:
         if len(self._buffer) < self._rate // 10:      # under 100ms, nothing to decode
             return []
 
-        started = time.monotonic()
+        started = _now()
         mel = get_logmel(mx.array(self._buffer, dtype=self._dtype), self.model.preprocessor_config)
         result = self.model.generate(mel, decoding_config=self._decoding_config)[0]
-        elapsed = time.monotonic() - started
+        elapsed = _now() - started
 
         for token in result.tokens:
             token.start += self._buffer_start
@@ -263,13 +295,6 @@ class LiveSession:
 
         if cutoff is None:
             cutoff = self.now - self.horizon
-
-        # Anything about to fall off the back of the buffer must come out now,
-        # however unstable. Dropping it would lose the words silently.
-        falling_off = self.now - self.window
-        if falling_off > self.committed_until:
-            cutoff = max(cutoff, falling_off)
-            self.degraded = True
 
         committed = [
             t for t in result.tokens
@@ -289,33 +314,44 @@ class LiveSession:
             self._buffer = self._buffer[-keep:]
         self._buffer_start = self.now - len(self._buffer) / self._rate
 
+        # Nothing should reach here uncommitted -- add_audio forces a pass
+        # before the buffer can outgrow the window. If it ever does, the audio
+        # is genuinely gone, and saying so beats resuming as if it were not.
+        if self._buffer_start > self.committed_until + 1e-6:
+            self.degraded = True
+            self.committed_until = self._buffer_start
+
     def _retune(self, elapsed: float) -> None:
         """Decode less often when a pass costs more than the interval.
 
         Decoding less often is what reduces duty cycle; a longer horizon does
         nothing for throughput. The cap keeps at least two commits per horizon
-        so the transcript does not arrive in one lump.
+        so the transcript does not arrive in one lump. `degraded` is exactly
+        this condition -- the session is not keeping up -- and clears once it
+        does.
         """
         ceiling = self.horizon / 2
         if elapsed > self.interval:
             self.interval = min(max(self._configured_interval, elapsed), ceiling)
+            self.degraded = True
             self._good_passes = 0
         else:
             self._good_passes += 1
             if self._good_passes >= 3:
                 self.interval = self._configured_interval
+                self.degraded = False
                 self._good_passes = 0
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `venv/bin/python -m pytest tests/test_live.py -v`
-Expected: PASS, 8 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Run the whole suite**
 
 Run: `venv/bin/python -m pytest -q`
-Expected: PASS, 123 existing + 8 new.
+Expected: PASS, 123 existing + 10 new.
 
 - [ ] **Step 6: Commit**
 
@@ -609,7 +645,7 @@ and append:
 
 ```python
 SILENCE_RMS = 1e-3          # below this a segment is silence, and Whisper invents
-MAX_BACKLOG = 2             # segments outstanding before the second opinion is skipped
+MAX_BACKLOG = 2             # segments of lag before the second opinion is skipped
 
 
 class SecondOpinionSession:
@@ -670,7 +706,7 @@ class SecondOpinionSession:
         if len(samples) == 0 or float(np.sqrt(np.mean(np.square(samples)))) < SILENCE_RMS:
             self.skipped += 1
             return inside          # silence: never ask, it would invent a sentence
-        if len(self._pending) > MAX_BACKLOG * self.segment * self._rate:
+        if self.live.now - edge > MAX_BACKLOG * self.segment:
             self.skipped += 1
             return inside          # falling behind: parakeet-only rather than growing lag
 
