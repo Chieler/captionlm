@@ -42,6 +42,15 @@ def _clip_headroom(model, tokenizer, clip: dict, blank_idx: int) -> dict[str, fl
             ctc_ali_token_weight=model.spotter_config.ctc_ali_token_weight,
         )
         for term, score in chunk_scores.items():
+            # WSHyp.word carries the term's original casing from the
+            # .terms.txt file (build_context_graph stores it that way even
+            # though it tokenizes both the original and lowercase spellings
+            # to match either spoken form). per_term_stats's row["term"]
+            # is always lowercased (captionlm.vendor.fscore.keyword_stats
+            # does `kw.lower()`), so key on the same lowercase form here or
+            # every term with an uppercase letter fails this lookup by
+            # construction, regardless of what raw_spot actually found.
+            term = term.lower()
             if term not in combined or score > combined[term]:
                 combined[term] = score
     return combined
