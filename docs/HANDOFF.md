@@ -160,35 +160,46 @@ this file:
   ffprobe parsing) but not whether 300s/1.0 are the *right* numbers --
   that's an eval question, not a test-suite question.
 
-## Task 4: the headroom signal Task 3's router actually needs
+## Task 4 (DONE, 2026-09-03): the headroom signal
 
-Not whole-transcript presence -- **per-span decode confidence at the
-specific locations a listed term might plausibly occur.** The distinction
-that broke the adaptive approach above (a proxy can't tell "wasn't said"
-from "was said but missed" from transcript presence alone) goes away if
-the signal is computed at a specific timestamp instead of over the whole
-clip: baseline's own decode confidence at that span can distinguish
-"audio here is genuinely uncertain" (worth boosting) from "term wasn't
-spoken here at all, this is irrelevant to headroom" (boosting is pure
-risk).
+**Built and measured, not just proposed.** `captionlm/headroom.py`
+computes per-span decode confidence at the specific locations a listed
+term might plausibly occur -- not whole-transcript presence, which is
+what made the adaptive router above fail. For each term, it runs the CTC
+word spotter's beam search unbiased (`cb_weight=0`) to find its best
+acoustic match, then compares that against what the model's own
+argmax-decoded path already believes is at that span (the same
+comparison `filter_wb_hyps` already relies on in production, just moved
+earlier in the pipeline). A small opt-in `capture_logits` hook on
+`BiasedParakeetTDTCTC` (no-op unless set, nothing wired into `cli.py`)
+gets the raw CTC logits back out, since `generate()` normally discards
+them. `scripts/measure_headroom_signal.py` runs the whole thing against
+already-swept clips and cross-references the result against each term's
+real fate (recovered / injected / neither).
 
-The raw material already exists and doesn't need new instrumentation to
-reach: `captionlm/vendor/ctc_word_spotter.py`'s `WSHyp` dataclass (line 43)
-already carries `start_frame`/`end_frame` per spotted word, and
-`find_best_hyps` (line 109) already resolves overlapping hypotheses by
-score. A real headroom check would run the *unbiased* CTC log-probs
-through the same spotting machinery to find where each listed term's
-acoustic pattern plausibly occurs, then look at the model's own confidence
-in that window -- high confidence in something else there means the term
-almost certainly wasn't said (leave it alone); low confidence there is a
-genuine candidate for a boost. This is a materially bigger build than the
-duration cap or the failed self-recall proxy -- it means running the
-spotter (or something like it) once unbiased before deciding whether to
-run it again biased, and defining what "confidence at a span" means in
-CTC-WS's beam-score terms, which nothing in this codebase does yet. Do not
-start this until Task 3 has actually validated the duration cap; the
-duration cap is free and already shipped, and this is not -- confirm the
-cheap fix is real before building the expensive one.
+**Answer: the signal is real but not yet proven at this sample size.**
+Recovered terms score clearly better (mean headroom -1.442) than
+injected (-2.268) or neither (-2.521) -- a term biasing correctly
+recovers is ~73-76% likely to outscore a term it falsely injects or a
+term irrelevant to recall, by this measure. That does not reach
+conventional significance (Mann-Whitney p≈0.063) at n=6 recovered
+terms, clustered in only 2 of the 4 clips. It also is not merely a
+term-length artifact -- headroom correlates strongly with word count
+(r≈-0.79), but the effect survives when restricted to single-word terms
+only. Full writeup, including a casing bug that first made this look
+like total failure until it was caught and fixed:
+`docs/results/2026-09-03-headroom-signal-shows-a-real-but-unproven-effect.md`.
+
+**What's next, if this gets picked back up:** more data before more
+engineering. The signal itself works as designed; what's missing is
+enough recovered-term examples to know whether the effect holds up --
+a second sweep cell, a second cb_weight, or LibriSpeech's rare-word
+benchmark (cleaner genuine-vs-distractor labels than Earnings-21's
+extracted-term lists) would all add power cheaply, before spending
+effort on the actual router logic (per-term thresholding) this
+measurement doesn't attempt to design. Do not build that router logic
+on this signal until it clears significance on more data than one
+sweep cell provides.
 
 ## Before you run anything
 
@@ -246,6 +257,15 @@ that's unrelated.)
   the gap. It doesn't (0.1776 vs. baseline's 0.1773). Task 3 above is
   re-validating it; until that's done, treat net -2 as directional, not a
   number to quote.
+- **Do not claim the headroom signal "works" or build a router on it yet.**
+  It shows a real, direction-consistent effect that survives a length-
+  confound check, but at n=6 recovered terms it does not reach
+  significance (p≈0.06-0.10) and those 6 cluster in only 2 clips. The
+  first run said the opposite (a term-casing bug zeroed out exactly the
+  class that mattered) -- treat any future extension of this signal with
+  the same suspicion until it, too, survives independent re-derivation
+  from raw output. See
+  `docs/results/2026-09-03-headroom-signal-shows-a-real-but-unproven-effect.md`.
 
 ## Getting the data
 
