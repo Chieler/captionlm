@@ -14,7 +14,6 @@ import json
 import os
 
 from captionlm.biased_model import load_biased_model
-from captionlm.config import MODEL_ID
 from captionlm.eval import load_clips, per_term_stats
 from captionlm.headroom import unbiased_headroom
 from captionlm.terms import build_context_graph, load_tokenizer
@@ -33,6 +32,12 @@ def _clip_headroom(model, tokenizer, clip: dict, blank_idx: int) -> dict[str, fl
     """Max headroom score per term across every chunk of this one clip."""
     model.context_graph = build_context_graph(clip["terms"], tokenizer, blank_idx)
     model.capture_logits = []
+    # Decoded text discarded -- only the captured pre-spotting logits
+    # matter. This runs the full biased pipeline (word spotter included,
+    # at whatever cb_weight model.spotter_config currently holds) as an
+    # unavoidable side effect of reaching generate()'s logit-computing
+    # branch; capture_logits is populated before any cb_weight boost is
+    # applied inside run_word_spotter.
     model.transcribe(clip["wav"], chunk_duration=120.0)
 
     combined: dict[str, float] = {}
@@ -40,6 +45,10 @@ def _clip_headroom(model, tokenizer, clip: dict, blank_idx: int) -> dict[str, fl
         chunk_scores = unbiased_headroom(
             model.context_graph, chunk_logprobs, model, blank_idx,
             ctc_ali_token_weight=model.spotter_config.ctc_ali_token_weight,
+            beam_threshold=model.spotter_config.beam_threshold,
+            keyword_threshold=model.spotter_config.keyword_threshold,
+            blank_threshold=model.spotter_config.blank_threshold,
+            non_blank_threshold=model.spotter_config.non_blank_threshold,
         )
         for term, score in chunk_scores.items():
             # WSHyp.word carries the term's original casing from the
@@ -70,7 +79,7 @@ def main():
     parser.add_argument("--sweep-dir", required=True, help="Directory holding sweep-<condition>-<weight>.json")
     parser.add_argument("--condition", required=True)
     parser.add_argument("--weight", type=float, required=True)
-    parser.add_argument("--model", default=MODEL_ID)
+    parser.add_argument("--model", required=True, help="Must match the model used for the sweep in --sweep-dir")
     args = parser.parse_args()
 
     clips = [c for c in load_clips(args.clip_dir) if c["terms"]]
@@ -126,7 +135,17 @@ def main():
 
     out_path = os.path.join(args.sweep_dir, f"headroom-{args.condition}-{args.weight}.json")
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(rows, f, indent=2)
+        json.dump(
+            {
+                "model": args.model,
+                "sweep_dir": args.sweep_dir,
+                "condition": args.condition,
+                "weight": args.weight,
+                "rows": rows,
+            },
+            f,
+            indent=2,
+        )
     print(f"\nper-term rows written to {out_path}")
 
 

@@ -24,6 +24,9 @@ class BiasedParakeetTDTCTC(ParakeetTDTCTC):
         super().__init__(args)
         self.context_graph: ContextGraphCTC | None = None
         self.spotter_config = SpotterConfig()
+        # Only populated when self.context_graph is set -- capture_logits
+        # is appended to inside generate()'s context-graph branch, so an
+        # unbiased call (context_graph is None) captures nothing.
         self.capture_logits: list[np.ndarray] | None = None
 
     def generate(

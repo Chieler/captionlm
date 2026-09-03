@@ -96,6 +96,16 @@ def argmax_span_score(word_alignment: list[tuple], start_frame: int, end_frame: 
     overlapping word counts in full, each subsequent overlapping word is
     weighted by its overlap percentage -- factored out here as a graded
     value because filter_wb_hyps only returns a survive/drop decision.
+
+    Diverges from the vendored filter_wb_hyps in two edge cases: an empty
+    word_alignment (vendor treats this as "no competitor exists, don't
+    filter anything out"; here it returns 0.0, the most pessimistic
+    possible competitor score) and a span that overlaps no word in the
+    alignment at all (vendor drops such hyps from consideration; here it
+    also returns 0.0). Both are unreachable in practice on real speech --
+    there is essentially always some argmax word somewhere near any
+    candidate span -- so this is left as an accepted divergence, not a
+    deliberate design choice, rather than special-cased.
     """
     hyp_interval = set(range(start_frame, end_frame + 1))
     overall_spot_score = 0.0
@@ -118,6 +128,10 @@ def unbiased_headroom(
     asr_model,
     blank_idx: int,
     ctc_ali_token_weight: float = 0.5,
+    beam_threshold: float = 5.0,
+    keyword_threshold: float = -5.0,
+    blank_threshold: float = 0.8,
+    non_blank_threshold: float = 0.001,
 ) -> dict[str, float]:
     """One chunk's headroom score per term in context_graph that was
     spotted at all. A term absent from the result had no surviving
@@ -125,7 +139,11 @@ def unbiased_headroom(
     in a clip) should treat a term missing from every chunk's result the
     same way: no acoustic trace found anywhere in the clip.
     """
-    hyps = raw_spot(logprobs, context_graph, blank_idx, cb_weight=0.0)
+    hyps = raw_spot(
+        logprobs, context_graph, blank_idx, cb_weight=0.0,
+        beam_threshold=beam_threshold, keyword_threshold=keyword_threshold,
+        blank_threshold=blank_threshold, non_blank_threshold=non_blank_threshold,
+    )
     alignment = get_ctc_word_alignment(logprobs, asr_model, token_weight=ctc_ali_token_weight, blank_idx=blank_idx)
 
     scores: dict[str, float] = {}
