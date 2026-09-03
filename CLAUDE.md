@@ -23,6 +23,6 @@ specs and plans.
   number may be quoted from a run that applies one term list to every clip.
 - Long eval runs need `nohup`; they die with the terminal. Budget ~16 min per
   pass over the 9 Earnings-21 clips.
-- `venv/bin/python -m pytest -q` should report 135 passed. Exactly three
+- `venv/bin/python -m pytest -q` should report 135 passed. Exactly four
   failures in `tests/test_biased_model.py` means the Metal XPC service died —
   reboot, do not debug.

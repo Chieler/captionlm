@@ -1,5 +1,7 @@
 import wave
 
+import numpy as np
+
 from captionlm.biased_model import load_biased_model
 from captionlm.config import MODEL_ID
 from captionlm.terms import build_context_graph, load_tokenizer
@@ -48,3 +50,22 @@ def test_blank_idx_matches_vocabulary_length():
     # CTC head has exactly len(vocabulary) + 1 output classes with blank last;
     # this is the invariant the blank-index computation above depends on.
     assert model.ctc_decoder.decoder_layers[0].weight.shape[0] == len(model.vocabulary) + 1
+
+
+def test_capture_logits_collects_one_array_per_chunk(tmp_path):
+    wav_path = str(tmp_path / "silence.wav")
+    _write_silent_wav(wav_path, seconds=1.0)
+
+    model = load_biased_model(MODEL_ID)
+    tokenizer = load_tokenizer(MODEL_ID)
+    blank_idx = len(model.vocabulary)
+    model.context_graph = build_context_graph(["kubernetes"], tokenizer, blank_idx)
+
+    assert model.capture_logits is None  # default, before this change existed at all
+
+    model.capture_logits = []
+    model.transcribe(wav_path)
+
+    assert len(model.capture_logits) >= 1
+    assert all(isinstance(arr, np.ndarray) for arr in model.capture_logits)
+    assert model.capture_logits[0].shape[1] == blank_idx + 1  # [T, vocab+blank]

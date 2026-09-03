@@ -171,11 +171,15 @@ def argmax_span_score(
 
 
 def unbiased_headroom(
-    logprobs: np.ndarray,
     context_graph: ContextGraphCTC,
+    logprobs: np.ndarray,
     asr_model,
     blank_idx: int,
     ctc_ali_token_weight: float = 0.5,
+    beam_threshold: float = 5.0,
+    keyword_threshold: float = -5.0,
+    blank_threshold: float = 0.8,
+    non_blank_threshold: float = 0.001,
 ) -> dict[str, float]:
     """One chunk's headroom score per term in context_graph that was
     spotted at all. A term absent from the returned dict had no
@@ -250,7 +254,7 @@ is `docs/results/`-worthy only once it has an answer, per house rules
         -> build_context_graph (existing)
         -> model.transcribe(..., capture_logits=[]) [discard decoded text]
         -> capture_logits: list[np.ndarray], one per chunk
-        -> headroom.unbiased_headroom(chunk, context_graph, model, blank_idx) per chunk
+        -> headroom.unbiased_headroom(context_graph, chunk, model, blank_idx) per chunk
         -> per-term max score across chunks
 
     sweep-<condition>-<weight>.json's per_clip[this clip]
