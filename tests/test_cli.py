@@ -1,6 +1,11 @@
 from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
 
-from captionlm.cli import format_timestamp, result_to_srt
+from captionlm.cli import format_timestamp, get_audio_duration, result_to_srt
+
+
+def test_get_audio_duration():
+    duration = get_audio_duration("data/read_aloud/distributed_systems.wav")
+    assert 348.0 < duration < 350.0
 
 
 def test_format_timestamp():

@@ -22,7 +22,7 @@ import tempfile
 import urllib.request
 from datetime import date, timedelta
 
-from captionlm.config import SEC_CONTACT
+from captionlm.config import SEC_CONTACT, TERM_EXTRACTION_TOP_N
 from captionlm.doc_import import extract_text
 from captionlm.eval_dataset import (
     COMPANY_TICKERS_URL,
@@ -31,7 +31,8 @@ from captionlm.eval_dataset import (
     fetch_json,
     fetch_url,
 )
-from captionlm.term_extraction import extract_terms, write_term_list
+from captionlm.biasable import extract_bias_terms
+from captionlm.term_extraction import write_term_list
 
 _QUARTER_ESTIMATE = {1: (5, 15), 2: (8, 15), 3: (11, 15)}
 
@@ -314,7 +315,7 @@ def assemble_eval_clip(
 
     filing_url = build_filing_url(filing["cik"], filing["accession"], exhibit_name)
     filing_text = fetch_filing_text(filing_url)
-    terms = extract_terms(filing_text)
+    terms = extract_bias_terms(filing_text, mode="combined", top_n=TERM_EXTRACTION_TOP_N)
 
     os.makedirs(out_dir, exist_ok=True)
     convert_to_wav(audio_path, os.path.join(out_dir, f"{file_id}.wav"))

@@ -34,3 +34,22 @@ class SpotterConfig:
     blank_threshold: float = 0.8
     non_blank_threshold: float = 0.001
     intersection_threshold: float = 30.0
+
+
+# Earnings-21 per-clip (the shipped per-document configuration) was net -9
+# at the stock cb_weight=3.0 on clips of 50-90 minutes; every weight >=2.0
+# tested regressed on that same long-form audio. Capping to 1.0 above this
+# duration cut the damage to net -2 at zero runtime cost, because duration
+# is known before transcription starts. That is one sweep, not a validated
+# threshold -- see docs/results/2026-09-03-a-router-needs-a-better-headroom-proxy.md
+# for the follow-up this needs before it's trusted as more than a stopgap.
+LONG_FORM_DURATION_S = 300.0
+LONG_FORM_CB_WEIGHT = 1.0
+
+
+def select_cb_weight(duration_s: float, base_weight: float) -> float:
+    """Cap cb_weight for long-form audio. base_weight is returned
+    unchanged for anything at or under LONG_FORM_DURATION_S."""
+    if duration_s > LONG_FORM_DURATION_S:
+        return LONG_FORM_CB_WEIGHT
+    return base_weight
