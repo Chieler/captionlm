@@ -1,3 +1,5 @@
+import wave
+
 from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
 
 from captionlm.cli import (
@@ -9,9 +11,16 @@ from captionlm.cli import (
 from captionlm.config import SpotterConfig
 
 
-def test_get_audio_duration():
-    duration = get_audio_duration("data/read_aloud/distributed_systems.wav")
-    assert 348.0 < duration < 350.0
+def test_get_audio_duration(tmp_path):
+    audio_path = tmp_path / "sample.wav"
+    with wave.open(str(audio_path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(16_000)
+        output.writeframes(b"\x00\x00" * 8_000)
+
+    duration = get_audio_duration(str(audio_path))
+    assert 0.49 < duration < 0.51
 
 
 def test_configure_document_bias_applies_and_resets_the_duration_cap(monkeypatch):
