@@ -1,7 +1,7 @@
 """Does the model's own unbiased decode confidence at a candidate term's
 span predict whether biasing it would help or hurt? This module computes
 that signal; it does not decide anything or touch any production path --
-see docs/superpowers/specs/2026-09-03-headroom-signal-validation-design.md.
+see docs/RESULTS.md.
 """
 import numpy as np
 

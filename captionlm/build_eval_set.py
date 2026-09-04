@@ -80,6 +80,17 @@ _NAME_SUFFIXES = (
     " THE", " & CO",
 )
 
+# The benchmark's fixed 2020-21 Earnings-21 subset includes three issuers
+# that have since been acquired or renamed and therefore disappeared from
+# SEC's *current* company_tickers.json. These are historical eval metadata,
+# used only after the live resolver has no safe answer; they are not a
+# general-purpose company-name lookup for the product.
+_EARNINGS21_HISTORICAL_CIKS = {
+    "ZAGG": "0001296205",
+    "NEXTAR MEDIA": "0001142417",  # Dataset typo; SEC issuer is Nexstar.
+    "EARTHSTONE ENERGY": "0000010254",
+}
+
 
 def _normalize_company_name(name: str) -> str:
     """Upper-case, drop punctuation, and strip corporate suffixes REPEATEDLY.
@@ -123,7 +134,7 @@ def resolve_cik_from_company_name(company_name: str, company_tickers: dict) -> s
 
     if len(prefix_hits) == 1:
         return f"{prefix_hits[0]['cik_str']:010d}"
-    return None
+    return _EARNINGS21_HISTORICAL_CIKS.get(target)
 
 
 def reconstruct_transcript_text(nlp_path: str) -> str:

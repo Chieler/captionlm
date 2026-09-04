@@ -6,7 +6,7 @@ logits were never persisted, so this is unavoidable), computes each
 listed term's headroom score, and checks whether that score actually
 separates terms the sweep recovered from terms it falsely injected.
 
-See docs/superpowers/specs/2026-09-03-headroom-signal-validation-design.md.
+See docs/RESULTS.md.
 Nothing here is wired into cli.py -- this is a measurement, not a feature.
 """
 import argparse

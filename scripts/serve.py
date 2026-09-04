@@ -38,8 +38,8 @@ from caption_dropoff import (  # noqa: E402
 from captionlm.biasable import extract_bias_terms  # noqa: E402
 from captionlm.biased_model import load_biased_model  # noqa: E402
 from captionlm.build_eval_set import convert_to_wav  # noqa: E402
-from captionlm.cli import result_to_srt  # noqa: E402
-from captionlm.config import MODEL_ID_110M, MODEL_ID_1_1B  # noqa: E402
+from captionlm.cli import configure_document_bias, result_to_srt  # noqa: E402
+from captionlm.config import MODEL_ID_110M, MODEL_ID_1_1B, SpotterConfig  # noqa: E402
 from captionlm.doc_import import extract_text  # noqa: E402
 from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion  # noqa: E402
 from captionlm.progressive import transcribe_progressive  # noqa: E402
@@ -174,6 +174,7 @@ def run_job(preset: str, want_second: bool) -> None:
         model_id = PRESETS[preset]["model"]
         model, tokenizer = _get_model(model_id)
         blank_idx = len(model.vocabulary)
+        base_cb_weight = SpotterConfig().cb_weight
 
         for row in state["files"]:
             audio = os.path.join(DROPOFF, row["name"])
@@ -200,6 +201,10 @@ def run_job(preset: str, want_second: bool) -> None:
                 wav = base + ".converted.wav"
                 if not os.path.isfile(wav):
                     convert_to_wav(audio, wav)
+
+            if docs:
+                weight = configure_document_bias(model, wav, base_cb_weight)
+                _set(row, stage=f"document bias (cb={weight:g})")
 
             _set(row, stage="transcribing", progress=0, cues=[])
 

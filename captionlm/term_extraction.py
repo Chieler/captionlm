@@ -6,9 +6,16 @@ pyate's bundled general-English reference corpus — this is what makes it
 domain-specific extraction rather than generic keyword extraction. MIT
 license, no GPU, spaCy en_core_web_sm only.
 """
-from pyate import term_extractor
+import numpy as np
+from pyate import TermExtraction, term_extractor
 
 from captionlm.config import TERM_EXTRACTION_TOP_N
+
+# pyate's default uint16 counters overflow on long source documents such as
+# SEC exhibits. term_extractor creates fresh TermExtraction instances
+# internally, so configure its process-wide default at the integration
+# boundary rather than trying to pass a dtype through its public wrapper.
+TermExtraction.configure({"dtype": np.uint32})
 
 
 def extract_terms(text: str, top_n: int = TERM_EXTRACTION_TOP_N) -> list[str]:

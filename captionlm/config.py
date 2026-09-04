@@ -41,7 +41,7 @@ class SpotterConfig:
 # tested regressed on that same long-form audio. Capping to 1.0 above this
 # duration cut the damage to net -2 at zero runtime cost, because duration
 # is known before transcription starts. That is one sweep, not a validated
-# threshold -- see docs/results/2026-09-03-a-router-needs-a-better-headroom-proxy.md
+# threshold -- see docs/HANDOFF.md for the validation still required.
 # for the follow-up this needs before it's trusted as more than a stopgap.
 LONG_FORM_DURATION_S = 300.0
 LONG_FORM_CB_WEIGHT = 1.0

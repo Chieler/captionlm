@@ -72,6 +72,15 @@ def test_resolve_cik_from_company_name_not_found():
     assert resolve_cik_from_company_name("Nonexistent Corp", COMPANY_TICKERS_FIXTURE) is None
 
 
+def test_resolve_cik_uses_historical_earnings21_aliases_when_ticker_data_drops_an_issuer():
+    # These names are in the fixed 2020-21 Earnings-21 eval subset, but no
+    # longer appear in SEC's current company_tickers.json after acquisition
+    # or renaming. The aliases are benchmark metadata, not a product lookup.
+    assert resolve_cik_from_company_name("Zagg Inc", {}) == "0001296205"
+    assert resolve_cik_from_company_name("Nextar Media Group", {}) == "0001142417"
+    assert resolve_cik_from_company_name("Earthstone Energy Inc", {}) == "0000010254"
+
+
 def test_reconstruct_transcript_text(tmp_path):
     nlp_path = tmp_path / "123.nlp"
     _write_nlp_fixture(

@@ -31,6 +31,18 @@ def get_audio_duration(path: str) -> float:
     return float(out.stdout.strip())
 
 
+def configure_document_bias(model, audio_path: str, base_weight: float) -> float:
+    """Apply the per-recording bias policy to a model reused across files.
+
+    The model is cached by both product entry points.  Always derive the
+    weight from ``base_weight`` rather than its current mutable setting, or a
+    long recording's conservative cap would leak into the next short one.
+    """
+    weight = select_cb_weight(get_audio_duration(audio_path), base_weight)
+    model.spotter_config.cb_weight = weight
+    return weight
+
+
 def format_timestamp(seconds: float) -> str:
     total_ms = int(round(seconds * 1000))
     hours, total_ms = divmod(total_ms, 3_600_000)
@@ -75,9 +87,7 @@ def caption_file(
         terms = load_term_list(term_list_path)
         blank_idx = len(model.vocabulary)
         model.context_graph = build_context_graph(terms, tokenizer, blank_idx)
-        model.spotter_config.cb_weight = select_cb_weight(
-            get_audio_duration(audio_path), model.spotter_config.cb_weight
-        )
+        configure_document_bias(model, audio_path, model.spotter_config.cb_weight)
 
     result = model.transcribe(audio_path, chunk_duration=120.0)
 
