@@ -1,5 +1,7 @@
 # tests/test_term_extraction.py
 from captionlm.term_extraction import extract_terms, write_term_list
+from pyate.term_extraction import TermExtraction
+import numpy as np
 
 JARGON_DOC = """
 Our platform runs on a kubernetes cluster deployed across three regions.
@@ -20,6 +22,13 @@ def test_extract_terms_deduplicates_case_insensitively():
     terms = extract_terms(JARGON_DOC, top_n=10)
     lowered = [t.lower() for t in terms]
     assert len(lowered) == len(set(lowered))
+
+
+def test_extract_terms_uses_counter_wide_enough_for_long_documents():
+    """pyate creates fresh internal counters while extracting; uint16
+    overflows on long SEC exhibits before CaptionLM can filter their terms.
+    """
+    assert TermExtraction("ordinary document text").dtype == np.uint32
 
 
 def test_write_term_list(tmp_path):

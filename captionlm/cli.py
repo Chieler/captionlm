@@ -2,14 +2,45 @@
 term list, and write an .srt file."""
 import argparse
 from pathlib import Path
+from subprocess import run
 
 from parakeet_mlx.alignment import AlignedResult, sentences_to_result, tokens_to_sentences
 
 from captionlm.biased_model import load_biased_model
-from captionlm.config import MODEL_ID
+from captionlm.config import MODEL_ID, select_cb_weight
 from captionlm.disfluency import strip_restarts
 from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion
 from captionlm.terms import build_context_graph, load_term_list, load_tokenizer
+
+
+def get_audio_duration(path: str) -> float:
+    """Probe a file's duration via ffprobe, without decoding it. Works for
+    both audio and video containers -- same ffmpeg dependency load_audio
+    already requires."""
+    out = run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            path,
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    return float(out.stdout.strip())
+
+
+def configure_document_bias(model, audio_path: str, base_weight: float) -> float:
+    """Apply the per-recording bias policy to a model reused across files.
+
+    The model is cached by both product entry points.  Always derive the
+    weight from ``base_weight`` rather than its current mutable setting, or a
+    long recording's conservative cap would leak into the next short one.
+    """
+    weight = select_cb_weight(get_audio_duration(audio_path), base_weight)
+    model.spotter_config.cb_weight = weight
+    return weight
 
 
 def format_timestamp(seconds: float) -> str:
@@ -56,6 +87,7 @@ def caption_file(
         terms = load_term_list(term_list_path)
         blank_idx = len(model.vocabulary)
         model.context_graph = build_context_graph(terms, tokenizer, blank_idx)
+        configure_document_bias(model, audio_path, model.spotter_config.cb_weight)
 
     result = model.transcribe(audio_path, chunk_duration=120.0)
 

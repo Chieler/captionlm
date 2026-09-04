@@ -22,7 +22,7 @@ import tempfile
 import urllib.request
 from datetime import date, timedelta
 
-from captionlm.config import SEC_CONTACT
+from captionlm.config import SEC_CONTACT, TERM_EXTRACTION_TOP_N
 from captionlm.doc_import import extract_text
 from captionlm.eval_dataset import (
     COMPANY_TICKERS_URL,
@@ -31,7 +31,8 @@ from captionlm.eval_dataset import (
     fetch_json,
     fetch_url,
 )
-from captionlm.term_extraction import extract_terms, write_term_list
+from captionlm.biasable import extract_bias_terms
+from captionlm.term_extraction import write_term_list
 
 _QUARTER_ESTIMATE = {1: (5, 15), 2: (8, 15), 3: (11, 15)}
 
@@ -79,6 +80,17 @@ _NAME_SUFFIXES = (
     " THE", " & CO",
 )
 
+# The benchmark's fixed 2020-21 Earnings-21 subset includes three issuers
+# that have since been acquired or renamed and therefore disappeared from
+# SEC's *current* company_tickers.json. These are historical eval metadata,
+# used only after the live resolver has no safe answer; they are not a
+# general-purpose company-name lookup for the product.
+_EARNINGS21_HISTORICAL_CIKS = {
+    "ZAGG": "0001296205",
+    "NEXTAR MEDIA": "0001142417",  # Dataset typo; SEC issuer is Nexstar.
+    "EARTHSTONE ENERGY": "0000010254",
+}
+
 
 def _normalize_company_name(name: str) -> str:
     """Upper-case, drop punctuation, and strip corporate suffixes REPEATEDLY.
@@ -122,7 +134,7 @@ def resolve_cik_from_company_name(company_name: str, company_tickers: dict) -> s
 
     if len(prefix_hits) == 1:
         return f"{prefix_hits[0]['cik_str']:010d}"
-    return None
+    return _EARNINGS21_HISTORICAL_CIKS.get(target)
 
 
 def reconstruct_transcript_text(nlp_path: str) -> str:
@@ -314,7 +326,7 @@ def assemble_eval_clip(
 
     filing_url = build_filing_url(filing["cik"], filing["accession"], exhibit_name)
     filing_text = fetch_filing_text(filing_url)
-    terms = extract_terms(filing_text)
+    terms = extract_bias_terms(filing_text, mode="combined", top_n=TERM_EXTRACTION_TOP_N)
 
     os.makedirs(out_dir, exist_ok=True)
     convert_to_wav(audio_path, os.path.join(out_dir, f"{file_id}.wav"))

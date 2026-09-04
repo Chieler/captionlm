@@ -22,8 +22,8 @@ from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
 
 from captionlm.biasable import extract_bias_terms
 from captionlm.build_eval_set import convert_to_wav
-from captionlm.cli import result_to_srt
-from captionlm.config import MODEL_ID
+from captionlm.cli import configure_document_bias, result_to_srt
+from captionlm.config import MODEL_ID, SpotterConfig
 from captionlm.doc_import import extract_text
 from captionlm.biased_model import load_biased_model
 from captionlm.fusion import WHISPER_MODEL_ID, fuse_tokens, second_opinion
@@ -123,8 +123,7 @@ def main():
     model = load_biased_model(args.model)
     tokenizer = load_tokenizer(args.model)
     blank_idx = len(model.vocabulary)
-    if args.cb_weight is not None:
-        model.spotter_config.cb_weight = args.cb_weight
+    base_cb_weight = args.cb_weight if args.cb_weight is not None else SpotterConfig().cb_weight
 
     for audio, docs in pairs:
         base = os.path.splitext(audio)[0]
@@ -148,6 +147,10 @@ def main():
         if not audio.lower().endswith(".wav"):
             wav = f"{base}.converted.wav"
             convert_to_wav(audio, wav)
+
+        if docs:
+            weight = configure_document_bias(model, wav, base_cb_weight)
+            print(f"  document bias: cb_weight={weight:g}")
 
         result = model.transcribe(wav, chunk_duration=120.0)
 
