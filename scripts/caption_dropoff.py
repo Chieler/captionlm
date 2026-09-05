@@ -22,7 +22,7 @@ from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
 
 from captionlm.biasable import extract_bias_terms
 from captionlm.build_eval_set import convert_to_wav
-from captionlm.cli import configure_document_bias, result_to_srt
+from captionlm.cli import configure_document_bias, result_to_srt, result_to_txt
 from captionlm.config import MODEL_ID, SpotterConfig
 from captionlm.doc_import import extract_text
 from captionlm.biased_model import load_biased_model
@@ -38,7 +38,7 @@ SEPARATORS = "-_. "
 # exactly like inputs -- `standup.terms.txt` reads as a document for
 # `standup.m4a`, `standup.converted.wav` as a recording of its own -- so a run
 # would feed its own output back in.
-GENERATED = (".terms.txt", ".converted.wav", ".srt")
+GENERATED = (".terms.txt", ".converted.wav", ".srt", ".transcript.txt")
 # The drop-off's own instructions. Harmless while an unmatched document was
 # ignored; once they are shared it would bias every recording toward this
 # repository's vocabulary.
@@ -165,7 +165,10 @@ def main():
         out = f"{base}.srt"
         with open(out, "w", encoding="utf-8") as f:
             f.write(result_to_srt(result))
-        print(f"  wrote {out}")
+        txt_out = f"{base}.transcript.txt"
+        with open(txt_out, "w", encoding="utf-8") as f:
+            f.write(result_to_txt(result))
+        print(f"  wrote {out} and {txt_out}")
 
     print("\nDone.")
 

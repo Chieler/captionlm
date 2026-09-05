@@ -1,6 +1,6 @@
 # Drop-off
 
-Put a recording here with the document it is about. Get back an `.srt`
+Put a recording here with the document it is about. Get back an `.srt` and `.txt`
 in which the domain terms are spelled correctly.
 
 ## How
@@ -72,6 +72,7 @@ You get:
 
 ```
 dropoff/standup.srt          <- the captions
+dropoff/standup.transcript.txt <- the plain-text transcript
 dropoff/standup.terms.txt    <- the terms it biased toward, so you can see what it decided
 ```
 

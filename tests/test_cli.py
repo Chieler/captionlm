@@ -2,12 +2,8 @@ import wave
 
 from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
 
-from captionlm.cli import (
-    configure_document_bias,
-    format_timestamp,
-    get_audio_duration,
-    result_to_srt,
-)
+import captionlm.cli as cli
+from captionlm.cli import configure_document_bias, format_timestamp, get_audio_duration, result_to_srt
 from captionlm.config import SpotterConfig
 
 
@@ -59,3 +55,37 @@ def test_result_to_srt():
         "hello world",
         "",
     ]
+
+
+def test_result_to_txt_keeps_final_words_without_caption_timing():
+    first = AlignedSentence(
+        text=" hello hello everyone",
+        tokens=[AlignedToken(id=0, text=" hello hello everyone", start=0.0, duration=1.0)],
+    )
+    second = AlignedSentence(
+        text=" welcome back",
+        tokens=[AlignedToken(id=1, text=" welcome back", start=1.0, duration=1.0)],
+    )
+    result = AlignedResult(text=" hello hello everyone welcome back", sentences=[first, second])
+
+    assert cli.result_to_txt(result) == "hello everyone\nwelcome back\n"
+
+
+def test_caption_file_can_return_plain_text(monkeypatch):
+    result = AlignedResult(
+        text=" hello world",
+        sentences=[
+            AlignedSentence(
+                text=" hello world",
+                tokens=[AlignedToken(id=0, text=" hello world", start=0.0, duration=1.0)],
+            )
+        ],
+    )
+
+    class Model:
+        def transcribe(self, path, chunk_duration):
+            return result
+
+    monkeypatch.setattr(cli, "load_biased_model", lambda model_id: Model())
+
+    assert cli.caption_file("recording.wav", None, output_format="txt") == "hello world\n"

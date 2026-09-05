@@ -2,7 +2,7 @@
 
 Local captions that preserve terminology from a trusted source document.
 Give it a recording plus the notes, slides, reading, or glossary it is about;
-it emits an SRT without sending either artifact to a server.
+it emits SRT captions and plain text without sending either artifact to a server.
 
 captionlm is designed for Apple Silicon and MLX. It does **not** fine-tune a
 model: it compiles the document's term list into a context graph at
@@ -21,6 +21,16 @@ Open http://localhost:8756, or use the batch command:
 
 ```bash
 venv/bin/python scripts/caption_dropoff.py dropoff
+```
+
+Developers can benchmark against a source transcript at
+http://localhost:8756/benchmark. Drop `recording.m4a` with
+`recording.reference.txt`; the source is used only for normalized WER scoring.
+
+For one file from the command line, choose plain text explicitly:
+
+```bash
+venv/bin/python -m captionlm.cli recording.m4a --format txt
 ```
 
 A document with the same basename as a recording applies only to that
