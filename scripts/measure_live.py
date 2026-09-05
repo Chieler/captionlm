@@ -1,6 +1,6 @@
 """The two gates from the live-captions design, measured rather than assumed.
 
-    venv/bin/python scripts/measure_live.py data/read_aloud/distributed_systems.wav
+    venv/bin/python scripts/measure_live.py <audio.wav>
 
 Gate 1, duty cycle: what fraction of realtime does the rolling re-transcribe
 actually consume? The design projects ~25% at 110m from batch throughput,
