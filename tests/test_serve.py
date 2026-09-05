@@ -2,10 +2,12 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import urllib.parse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
+import serve  # noqa: E402
 from serve import SCORES, _cues, _diff  # noqa: E402
 
 SRT = """1
@@ -53,6 +55,99 @@ def test_diff_records_a_deletion_with_an_empty_replacement():
     assert _diff("the strategy is always part is almost always", "the strategy is almost always") == [
         {"from": "always part is", "to": ""}
     ]
+
+
+def test_score_transcript_reports_word_error_counts():
+    score = serve.score_transcript(
+        "Paxos makes quorum durable",
+        "Paxos makes a quorum portable",
+    )
+
+    assert score == {
+        "wer": 0.5,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 1,
+        "reference_words": 4,
+        "hypothesis_words": 5,
+    }
+
+
+def test_scan_benchmarks_scores_saved_txt_against_its_reference(tmp_path, monkeypatch):
+    (tmp_path / "demo.wav").write_bytes(b"audio")
+    (tmp_path / "demo.reference.txt").write_text("Paxos makes quorum durable")
+    (tmp_path / "demo.txt").write_text("Paxos makes a quorum portable")
+    monkeypatch.setattr(serve, "BENCHMARK", str(tmp_path))
+
+    assert serve.scan_benchmarks() == [{
+        "name": "demo.wav",
+        "reference": "demo.reference.txt",
+        "size": 5,
+        "status": "done",
+        "score": {
+            "wer": 0.5,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "reference_words": 4,
+            "hypothesis_words": 5,
+        },
+        "transcript": "Paxos makes a quorum portable",
+    }]
+
+
+def test_benchmark_job_writes_txt_and_scores_it(tmp_path, monkeypatch):
+    import serve
+    from parakeet_mlx.alignment import AlignedResult, AlignedSentence, AlignedToken
+
+    (tmp_path / "demo.wav").write_bytes(b"audio")
+    (tmp_path / "demo.reference.txt").write_text("Paxos makes quorum durable")
+    result = AlignedResult(
+        text=" Paxos makes a quorum portable",
+        sentences=[
+            AlignedSentence(
+                text=" Paxos makes a quorum portable",
+                tokens=[AlignedToken(id=0, text=" Paxos makes a quorum portable", start=0.0, duration=1.0)],
+            )
+        ],
+    )
+
+    class Model:
+        vocabulary = [0]
+        context_graph = "stale graph"
+
+    monkeypatch.setattr(serve, "BENCHMARK", str(tmp_path))
+    monkeypatch.setattr(serve, "_get_model", lambda model_id: (Model(), object()))
+    monkeypatch.setattr(serve, "transcribe_progressive", lambda model, path, on_partial: result)
+    serve.benchmark_state.update(running=True, files=serve.scan_benchmarks(), error=None)
+
+    serve.run_benchmark_job("110m", False)
+
+    assert (tmp_path / "demo.txt").read_text() == "Paxos makes a quorum portable\n"
+    assert (tmp_path / "demo.srt").is_file()
+    assert serve.benchmark_state["files"][0]["score"]["wer"] == 0.5
+    assert serve.benchmark_state["files"][0]["status"] == "done"
+
+
+def test_inference_worker_keeps_sequential_jobs_on_one_thread():
+    # MLX model arrays belong to their loading thread. Starting one thread per
+    # request makes a cached model fail on second job with "no Stream".
+    worker = serve.InferenceWorker()
+    completed = threading.Event()
+    threads = []
+
+    def record_thread():
+        threads.append(threading.get_ident())
+        if len(threads) == 2:
+            completed.set()
+
+    worker.submit(record_thread)
+    worker.submit(record_thread)
+
+    assert completed.wait(1)
+    assert len(threads) == 2
+    assert threads[0] == threads[1]
+    assert threads[0] != threading.get_ident()
 
 
 def test_every_toggle_combination_has_a_measured_score():

@@ -73,11 +73,24 @@ def result_to_srt(result: AlignedResult, drop_restarts: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
+def result_to_txt(result: AlignedResult, drop_restarts: bool = True) -> str:
+    """Render final spoken text without timestamps."""
+    lines = []
+    for sentence in result.sentences:
+        text = sentence.text.strip()
+        if drop_restarts:
+            text = strip_restarts(text)
+        if text:
+            lines.append(text)
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def caption_file(
     audio_path: str,
     term_list_path: str | None,
     model_id: str = MODEL_ID,
     second_opinion_model: str | None = None,
+    output_format: str = "srt",
 ) -> str:
     model = load_biased_model(model_id)
 
@@ -97,6 +110,8 @@ def caption_file(
             tokens_to_sentences(fuse_tokens(result.tokens, second, terms))
         )
 
+    if output_format == "txt":
+        return result_to_txt(result)
     return result_to_srt(result)
 
 
@@ -104,7 +119,8 @@ def main():
     parser = argparse.ArgumentParser(description="Domain-biased captioning")
     parser.add_argument("audio", help="Path to an audio/video file")
     parser.add_argument("--terms", help="Path to a term list (.txt, one term per line)")
-    parser.add_argument("--out", help="Output .srt path (default: <audio>.srt)")
+    parser.add_argument("--out", help="Output path (default: <audio>.<format>)")
+    parser.add_argument("--format", choices=("srt", "txt"), default="srt")
     parser.add_argument("--model", default=MODEL_ID)
     parser.add_argument(
         "--second-opinion",
@@ -119,9 +135,11 @@ def main():
     )
     args = parser.parse_args()
 
-    srt = caption_file(args.audio, args.terms, args.model, args.second_opinion)
-    out_path = args.out or str(Path(args.audio).with_suffix(".srt"))
-    Path(out_path).write_text(srt, encoding="utf-8")
+    output = caption_file(
+        args.audio, args.terms, args.model, args.second_opinion, args.format
+    )
+    out_path = args.out or str(Path(args.audio).with_suffix("." + args.format))
+    Path(out_path).write_text(output, encoding="utf-8")
     print(f"Wrote {out_path}")
 
 

@@ -358,7 +358,7 @@ function renderDetail(st) {
         : `<div class="empty">No captions yet. Press \u201CCaption everything\u201D.</div>`) +
 
     (f.status === "done"
-      ? `<div class="export"><a class="btn primary" href="/api/srt?name=${encodeURIComponent(f.name)}" download>Download .SRT</a></div>`
+      ? `<div class="export"><a class="btn primary" href="/api/txt?name=${encodeURIComponent(f.name)}" download>Download .TXT</a><a class="btn" href="/api/srt?name=${encodeURIComponent(f.name)}" download>Download .SRT</a></div>`
       : "");
 }
 
